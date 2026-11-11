@@ -53,12 +53,19 @@ service cloud.firestore {
       allow create, update: if wits() && request.auth.uid == uid
         && request.resource.data.email == email();
       allow delete: if false;
+
+      // Private to that person: their own backlog of unfinished tasks.
+      match /private/{docId} {
+        allow read, write: if wits() && request.auth.uid == uid;
+      }
     }
 
-    // Projects and everything inside them (samples, experiments, sessions, targets, files).
+    // Projects and everything inside them (experiments, sample assignments, bench sessions,
+    // weekly targets, result file links). Samples are listed on the project itself.
     match /projects/{pid} {
       allow read: if isSup() || (isMember() && email() in resource.data.members);
-      allow create: if isMember() && email() in request.resource.data.members;
+      // A supervisor sees every project anyway, so may create one without being listed.
+      allow create: if isSup() || (isMember() && email() in request.resource.data.members);
       allow update: if isSup() || (isMember() && email() in resource.data.members);
       allow delete: if isSup();
 
@@ -76,9 +83,24 @@ service cloud.firestore {
       allow read, create, update: if isMember();
       allow delete: if isSup() || isAdmin();
     }
+    // Duties are added and dealt out by supervisors and admins. A member may only mark a
+    // once-off duty as done.
     match /duties/{id} {
       allow read: if isMember();
       allow write: if isSup() || isAdmin();
+      allow update: if isMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['doneAt']);
+    }
+    // Who holds which duty in a month (document ID is the month, e.g. 2026-11).
+    match /rota/{month} {
+      allow read: if isMember();
+      allow write: if isSup() || isAdmin();
+    }
+    // One entry each time someone ticks a duty as done.
+    match /dutyLog/{id} {
+      allow read: if isMember();
+      allow create: if isMember() && request.resource.data.by == email();
+      allow update, delete: if isSup() || isAdmin();
     }
     match /dutyRequests/{id} {
       allow read, create, update: if isMember();
@@ -86,7 +108,7 @@ service cloud.firestore {
     }
     match /notices/{id} {
       allow read: if isMember() && (resource.data.to == email() || isSup());
-      allow create: if isMember();
+      allow create: if isMember() && request.resource.data.by == email();
       allow update, delete: if isMember() && resource.data.to == email();
     }
   }
