@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// Lab Bench Tracker security rules.
+// Only verified Wits Google accounts get in. The lab owner (config/lab) lists members,
+// admins and supervisors. Supervisors see every project; everyone else sees only the
+// projects they are a member of. Admins manage membership but do not see other projects.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function email() {
+      return request.auth.token.email.lower();
+    }
+    function wits() {
+      return signedIn() && email().matches('.*@(students[.])?wits[.]ac[.]za');
+    }
+    function labDoc() {
+      return /databases/$(database)/documents/config/lab;
+    }
+    function lab() {
+      return get(labDoc()).data;
+    }
+    function isAdmin() {
+      return wits() && exists(labDoc()) && email() in lab().admins;
+    }
+    function isSup() {
+      return wits() && exists(labDoc()) && email() in lab().supervisors;
+    }
+    function isMember() {
+      return wits() && exists(labDoc()) &&
+        (email() in lab().members || email() in lab().admins || email() in lab().supervisors);
+    }
+    function inProject(pid) {
+      return email() in get(/databases/$(database)/documents/projects/$(pid)).data.members;
+    }
+
+    // Lab settings: who is in the lab, who supervises, who administers.
+    match /config/lab {
+      allow read: if wits();
+      // One-time setup, only by the lab owner, who must list himself as admin and member.
+      allow create: if wits() && email() == '2304452@students.wits.ac.za'
+        && email() in request.resource.data.admins
+        && email() in request.resource.data.members;
+      allow update: if isAdmin() || isSup();
+      allow delete: if false;
+    }
+
+    // Each person's own profile (name shown to others in the lab).
+    match /users/{uid} {
+      allow read: if isMember();
+      allow create, update: if wits() && request.auth.uid == uid
+        && request.resource.data.email == email();
+      allow delete: if false;
+    }
+
+    // Projects and everything inside them (samples, experiments, sessions, targets, files).
+    match /projects/{pid} {
+      allow read: if isSup() || (isMember() && email() in resource.data.members);
+      allow create: if isMember() && email() in request.resource.data.members;
+      allow update: if isSup() || (isMember() && email() in resource.data.members);
+      allow delete: if isSup();
+
+      match /{coll}/{docId} {
+        allow read, write: if isSup() || (isMember() && inProject(pid));
+      }
+    }
+
+    // Lab-wide records shared by everyone in the lab.
+    match /protocols/{id} {
+      allow read, create, update: if isMember();
+      allow delete: if isSup() || (isMember() && resource.data.by == email());
+    }
+    match /reagents/{id} {
+      allow read, create, update: if isMember();
+      allow delete: if isSup() || isAdmin();
+    }
+    match /duties/{id} {
+      allow read: if isMember();
+      allow write: if isSup() || isAdmin();
+    }
+    match /dutyRequests/{id} {
+      allow read, create, update: if isMember();
+      allow delete: if isSup() || isAdmin();
+    }
+    match /notices/{id} {
+      allow read: if isMember() && (resource.data.to == email() || isSup());
+      allow create: if isMember();
+      allow update, delete: if isMember() && resource.data.to == email();
+    }
+  }
+}
