@@ -2,7 +2,7 @@
   "firestore": { "rules": "firestore.rules" },
   "hosting": {
     "public": ".",
-    "ignore": ["firebase.json", "firestore.rules", ".firebaserc", "README.md", "**/.*", "**/node_modules/**"],
+    "ignore": ["firebase.json", "firestore.rules", ".firebaserc", "README.md", ".git/**", "**/.*", "**/node_modules/**"],
     "headers": [{ "source": "**/*.@(js|css|html)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }]
   }
 }
