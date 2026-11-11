@@ -20,9 +20,10 @@ Records live in Firebase (Firestore, project `lab-bench-tracker`, Johannesburg),
 - `firestore.rules`: who can read and write what.
 - `firebase.json`, `.firebaserc`: Firebase Hosting and rules deployment.
 
-## Deploy
-From a terminal with the Firebase CLI signed in to the Wits account:
+## Hosting and deploy
+- App: GitHub Pages from `main`, live at https://zakkyzakzak.github.io/lab-bench-tracker/
+  (updates a minute or two after each change to `main`).
+- Security rules: after changing `firestore.rules`, run in Google Cloud Shell (signed in as the Wits account):
 
-    firebase deploy --only hosting,firestore:rules
-
-Live at https://lab-bench-tracker.web.app
+      git clone https://github.com/zakkyzakzak/lab-bench-tracker && cd lab-bench-tracker
+      firebase deploy --only firestore:rules --project lab-bench-tracker
