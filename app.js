@@ -133,7 +133,7 @@ function rebuild() {
   softRender();
 }
 let lastSig = '';   // what the screen was last drawn from, apart from DB itself
-const sigNow = () => canon([S.ready, pending.has('lab'), S.labErr, dataMode, S.fb?.uid, [...S.people]]);
+const sigNow = () => canon([S.ready, pending.has('lab'), S.labErr, dataMode, S.fb === undefined ? 'starting' : S.fb ? S.fb.uid : 'signed out', [...S.people]]);
 function sameSnap(a, b) {
   if (a.size !== b.size) return false;
   for (const [p, c] of a) { const d = b.get(p); if (!d) return false; for (const k in c) if (c[k] !== d[k]) return false; for (const k in d) if (!(k in c)) return false; }
