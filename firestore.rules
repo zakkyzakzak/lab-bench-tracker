@@ -131,6 +131,12 @@ service cloud.firestore {
         && request.resource.data.email == email()
         && request.resource.data.keys().hasOnly(['email', 'day', 'from', 'to']);
     }
+    // A small summary of each project (name, members, runs done per experiment) that the whole lab
+    // can read, kept up to date by the project's own members. No samples or results are in it.
+    match /progress/{pid} {
+      allow read: if isMember();
+      allow write: if isSup() || (isMember() && inProject(pid));
+    }
     match /notices/{id} {
       allow read: if isMember() && (resource.data.to == email() || isSup());
       allow create: if isMember() && request.resource.data.by == email();

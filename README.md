@@ -56,7 +56,7 @@ The app starts empty: there is no example data.
 - `projects/{id}`: name, description, members, samples, experiment order. Under it: `exps`,
   `asg` (which sample gets which experiment), `sessions`, `targets`, `files` (result links).
 - Lab-wide: `protocols`, `reagents`, `duties`, `rota` (one per month), `dutyLog`, `dutyRequests`,
-  `notices`, `presence` (who has the site open, shown as circles at the top).
+  `notices`, `progress` (a per-project summary the whole lab can read), `visits` (admin-only), `presence` (who has the site open, shown as circles at the top).
 
 ## Hosting and deploy
 - Main site: Firebase Hosting, https://lab-bench-tracker.web.app

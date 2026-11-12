@@ -23,7 +23,7 @@ function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = fals
 const errMsg = err => (err && err.code === 'permission-denied') ? 'Not allowed: your account does not have permission for that.' : (err && err.message) || String(err);
 
 /* ---------------- state ---------------- */
-const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], gone: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [] };
+const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], gone: [], progress: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [] };
 const S = { fb: null, user: '', ready: false, labErr: null, people: new Map(), tab: 'today', project: null, selMouse: null, mx: null, selExp: undefined, selTarget: '', picked: new Set(), selProto: null, selNode: null, viewRev: null, edit: null, openSession: null, freeMin: null, q: '', modal: null, variant: null, tpick: null, draft: null, planX: '', dOff: 0, addT: new Set(), addG: '', smOpen: false };
 let IDX = new Map();
 const newDraft = () => ({ week: WK + 7 * DAY, items: [], pick: new Set(), exp: '', override: false }); S.draft = newDraft();
@@ -31,8 +31,9 @@ const newDraft = () => ({ week: WK + 7 * DAY, items: [], pick: new Set(), exp: '
 /* ---------------- people and roles ---------------- */
 const sups = () => DB.lab?.supervisors || [], admins = () => DB.lab?.admins || [];
 const isSup = () => sups().includes(S.user);
-const isAdmin = () => admins().includes(S.user);
-const isMember = () => !!DB.lab && (isSup() || isAdmin() || (DB.lab.members || []).includes(S.user));
+const realAdmin = () => admins().includes(S.user);
+const isAdmin = () => realAdmin() && !S.asMember;   // an admin can switch to the member view to see what members see
+const isMember = () => !!DB.lab && (isSup() || realAdmin() || (DB.lab.members || []).includes(S.user));
 const canLab = () => isSup() || isAdmin();
 const nameOf = em => S.people.get(em)?.name || em;
 const roleOf = em => sups().includes(em) ? 'Supervisor' : admins().includes(em) ? 'Admin' : 'Member';
@@ -138,7 +139,7 @@ function startData(mode) {
     watch('projects', 'projects', false, mode === 'sup' ? null : ['members', 'array-contains', S.user], syncProjSubs),
     watch('users', 'users', false, null), watch('protocols', 'protocols', false, null), watch('reagents', 'reagents', false, null),
     watch('duties', 'duties', false, null), watch('rota', 'rota', false, null), watch('dutyLog', 'dutyLog', false, null),
-    watch('dutyRequests', 'dutyRequests', false, null), watch('notices', 'notices', false, ['to', '==', S.user]),
+    watch('dutyRequests', 'dutyRequests', false, null), watch('progress', 'progress', false, null), watch('notices', 'notices', false, ['to', '==', S.user]),
     watch('backlog', blPath(), true)];
   presOff = B.watchCol('presence', null, m => { PRES = m; drawOnline(); }, () => {});
   beat(); presT = setInterval(beat, BEAT);
@@ -170,13 +171,13 @@ function rebuild() {
   // a deleted protocol that studies still use is kept out of sight ("gone") so their records keep working
   const allP = col('protocols').sort(byName); DB.protocols = allP.filter(p => !p.deleted); DB.gone = allP.filter(p => p.deleted); DB.reagents = col('reagents').sort(byName);
   DB.duties = col('duties').sort((a, b) => byAt(a, b) || byName(a, b));
-  DB.dutyLog = col('dutyLog').sort(byAt); DB.requests = col('dutyRequests').sort(byAt); DB.notices = col('notices').sort(byAt);
+  DB.progress = col('progress'); DB.dutyLog = col('dutyLog').sort(byAt); DB.requests = col('dutyRequests').sort(byAt); DB.notices = col('notices').sort(byAt);
   DB.rota = {}; col('rota').forEach(r => DB.rota[r.id] = r.d || {});
   DB.backlog = S.fb && SRV.has(blPath()) ? clone(SRV.get(blPath()).items || []) : [];
   S.people = new Map(col('users').map(u => [u.email, u]));
   buildIdx(); const prev = BASE; BASE = snap();
   if (dataMode && !pending.size) S.ready = true;
-  if (S.ready) restoreState();          // once everything has loaded, go back to where this tab was before a refresh
+  if (S.ready) { restoreState(); syncProgress(); }          // once everything has loaded, go back to where this tab was before a refresh
   fixSel();
   // Our own writes echo back through the listeners: redraw only if something really changed.
   if (sigNow() === lastSig && sameSnap(prev, BASE)) return;
@@ -468,6 +469,9 @@ const tName = t => t.items.map(i => iName(i) + ' × ' + i.mice.length).join(', '
 const inWk = (s, w) => s && s.doneAt && s.doneAt >= w && s.doneAt < w + 7 * DAY;
 const tDone = t => t.items.reduce((a, i) => a + i.mice.filter(m => inWk(runOf(i.exp, i.target, m), t.week)).length, 0);
 function tState(t) { if (t.status !== 'agreed') return t.status; if (tDone(t) >= tN(t)) return 'met'; if (now() >= t.week + 7 * DAY) return t.excuse ? 'explained' : 'missed'; return 'open'; }
+/* who already has this run in a target of their own (and has not done it yet) */
+const claimOf = (x, t, m) => { if (stOf(x, t, m) !== 'todo') return null; const q = DB.targets.find(q => q.user !== S.user && q.status !== 'change' && q.items.some(i => i.exp === x && i.target === t && i.mice.includes(m))); return q ? q.user : null; };
+const first = em => nameOf(em).split(/[\s@.]/)[0];
 const lockFor = u => DB.targets.find(t => t.user === u && tState(t) === 'missed');
 const TS = { proposed: ['info', 'Waiting for Prof Kaur'], change: ['warn', 'Change requested'], met: ['ok', 'Met'], missed: ['bad', 'Missed, no explanation yet'], explained: ['warn', 'Missed, explained'], open: ['info', 'In progress'] };
 /* Batch time = protocol time for one sample + b minutes for each extra sample.
@@ -497,7 +501,9 @@ function tCard(t, act) {
     const pk = S.tpick && S.tpick.t === t.id && S.tpick.k === k ? S.tpick.set : null;
     return `<div class="ti"><div class="line"><b class="grow sm">${e(iName(i))} · ${i.mice.length} samples</b>${own ? `<span class="sm muted">about ${dur(est(i.exp, i.mice.length))} as one batch</span>` : ''}</div>
     <div class="mcs">${i.mice.map(m => { const st = stOf(i.exp, i.target, m); return st === 'todo' && canRun ? `<button class="mc ${pk && pk.has(m) ? 'on' : ''}" data-a="tpick" data-id="${t.id}" data-k="${k}" data-m="${e(m)}" aria-pressed="${!!(pk && pk.has(m))}">${e(m)}</button>` : `<span class="mc ${st}">${e(m)}${st === 'done' ? ' ✓' : st === 'run' ? ' ◔' : ''}</span>`; }).join('')}</div>
-    ${pk && pk.size ? `<div class="line"><button class="btn sm pri" data-a="tstart">Start bench session with these ${pk.size}</button><span class="sm muted">about ${dur(est(i.exp, pk.size))}</span></div>` : ''}</div>`;
+    ${pk && pk.size ? `<div class="line"><button class="btn sm pri" data-a="tstart">Start bench session with these ${pk.size}</button><span class="sm muted">about ${dur(est(i.exp, pk.size))}</span></div>` : ''}
+    ${(() => { if (!own || s === 'met' || t.status === 'change') return ''; const mates = (PR(t.proj)?.members || []).filter(u => u !== S.user && !sups().includes(u)), todo = i.mice.filter(m => stOf(i.exp, i.target, m) === 'todo'), n = pk && pk.size ? pk.size : todo.length; if (!mates.length || !todo.length) return '';
+      return `<div class="line sm"><span class="muted">Hand ${pk && pk.size ? 'the ' + n + ' clicked' : n === 1 ? 'the 1 not started' : 'all ' + n + ' not started'} to</span><select id="ho${t.id}_${k}" aria-label="Teammate to hand over to">${mates.map(u => `<option value="${e(u)}">${e(nameOf(u))}</option>`).join('')}</select><button class="btn sm" data-a="handOver" data-id="${t.id}" data-k="${k}">Hand over</button></div>`; })()}</div>`;
   }).join('')}
   ${canRun && d < n ? '<div class="hint">Click the samples you are doing now, then start the session. The others stay on the plan for another day.</div>' : ''}
   ${L ? `<div class="ti"><div class="sm"><b>Does the week fit?</b> <span class="muted">Only you see this. Batches packed into days of 6 hours.</span></div>${loadHTML(L)}${L.over ? `<div class="err">${overMsg}${t.override ? ' You chose to go ahead anyway.' : ''}</div>` : ''}</div>` : ''}
@@ -525,7 +531,7 @@ const weekTargetMice = (x, t) => DB.targets.filter(q => q.user === S.user && q.w
 
 /* ---------------- views ---------------- */
 function runRow(x, t, m, title, pk) {
-  const s = runOf(x.id, t, m), k = !s ? 'todo' : s.doneAt ? 'ok' : 'wait';
+  const s = runOf(x.id, t, m), k = !s ? 'idle' : s.doneAt ? 'ok' : 'wait';
   const nf = DB.files.filter(f => f.key === key(x.id, t, m)).length, nn = s ? s.notes.filter(n => n.mice === 'all' || n.mice.includes(m)).length : 0;
   const txt = !s ? 'To do' : s.doneAt ? `Done ${dt(s.doneAt)} · ${e(s.pname)} ${e(s.label)} rev ${s.rev}` : `On the bench · step ${s.stepIdx + 1} of ${s.steps.length}`;
   return `<div class="item"><span class="pk">${pk || ''}</span><span class="ic ${k}">${k === 'ok' ? '✓' : k === 'wait' ? '◔' : '○'}</span><span class="what">${title}</span><span class="state ${k}">${txt}${nn ? ` · ${nn} deviation${nn > 1 ? 's' : ''} noted` : ''}${nf ? ` · ${nf} result file${nf > 1 ? 's' : ''}` : ''}</span><span class="act"><button class="btn sm" data-a="run" data-x="${x.id}" data-t="${e(t || '')}" data-m="${e(m)}">Open record</button></span></div>`;
@@ -537,8 +543,8 @@ V.today = () => {
   const act = DB.sessions.filter(s => !s.doneAt && X(s.exp));
   const open = act.find(s => s.id === S.openSession);
   const waits = act.filter(s => s.waitStart && s.steps[s.stepIdx].w).map(s => ({ s, left: s.steps[s.stepIdx].m - (now() - s.waitStart) / MIN })).sort((a, b) => b.left - a.left);
-  const F = S.freeMin ?? (waits[0] ? Math.max(0, Math.round(waits[0].left)) : 60);
-  const fits = fitList(F, waits[0]?.s.exp);
+  const W = waits.find(q => q.left > 0), F = W ? Math.floor(W.left) : (S.freeMin ?? 60);     // a running hands-free step sets the free time by itself
+  const fits = fitList(F, W?.s.exp), soon = act.map(s => ({ s, stp: s.steps[s.stepIdx] })).find(q => q.stp.w && !q.s.waitStart && q.stp.m >= 5);
   const tg = DB.targets.filter(t => t.week === WK && (isSup() || t.user === S.user));
   return `<div class="cols"><div class="stack">
    <div class="card"><h2>On the bench now</h2>${act.length ? `<div class="list">${act.map(s => { const stp = s.steps[s.stepIdx]; return `<div class="item"><span class="pk"></span><span class="ic wait">◔</span><span class="what">${e(X(s.exp).name)} ${e(s.target)} · ${s.mice.length} samples</span><span class="state">Step ${s.stepIdx + 1} of ${s.steps.length}: ${e(stp.t)}${s.waitStart ? ` · <span class="clock" data-until="${s.waitStart + stp.m * MIN}"></span>` : ''}</span><span class="act"><button class="btn sm ${open === s ? '' : 'pri'}" data-a="openSess" data-id="${s.id}">${open === s ? 'Open below' : 'Open'}</button></span></div>`; }).join('')}</div>` : '<div class="hint">Nothing is running. Go to Experiments, tick the samples and start a bench session.</div>'}</div>
@@ -546,15 +552,64 @@ V.today = () => {
   </div><div class="stack">
    ${lowList().length ? `<div class="card" style="border-color:var(--bad)"><div class="line"><b class="grow">Reagents running low</b><button class="lnk" data-a="tab" data-k="reag">Open Reagents</button></div><div class="sm">${lowList().map(r => e(r.name) + ' (' + fmtV(stock(r).left, r.unit) + ' left)').join(' · ')}</div></div>` : ''}
    ${dueCard()}
-   <div class="card"><h2>What fits while you wait</h2>
-    <div class="line"><label class="fld" for="freeMin">Free time</label><input type="number" id="freeMin" min="5" step="5" value="${F}" data-c="free" style="width:84px"><span class="sm muted">minutes${waits[0] && S.freeMin == null ? `, taken from the ${e(X(waits[0].s.exp).name)} incubation` : ''}</span></div>
-    ${fits.length ? fits.map(f => `<div class="fit"><b>${e(f.t)}</b><span class="m">${dur(f.m)}</span><span class="sub">${e(f.sub)}</span></div>`).join('') : '<div class="hint">Nothing outstanding fits in that window.</div>'}</div>
+   ${W ? `<div class="card waiting"><div class="line"><h2 class="grow">You have ${dur(F)} free</h2><span class="clock" data-until="${W.s.waitStart + W.s.steps[W.s.stepIdx].m * MIN}"></span></div>
+    <div class="sm">${e(X(W.s.exp).name)} is hands-free: step ${W.s.stepIdx + 1}, ${e(W.s.steps[W.s.stepIdx].t)}. This fits before it needs you again:</div>
+    ${fits.length ? fits.map(f => `<div class="fit"><b>${e(f.t)}</b><span class="m">${dur(f.m)}</span><span class="sub">${e(f.sub)}</span></div>`).join('') : '<div class="hint">Nothing outstanding fits in the time left.</div>'}</div>`
+   : `<div class="card"><h2>What fits in a gap</h2>
+    ${soon ? `<div class="sm">${e(X(soon.s.exp).name)} is at a hands-free step (${dur(soon.stp.m)}). Start its timer and this card fills in by itself.</div>` : '<div class="hint">When a step is running hands-free, this card shows what fits in the time left without you asking.</div>'}
+    <div class="line"><label class="fld" for="freeMin">Or try a gap of</label><input type="number" id="freeMin" min="5" step="5" value="${F}" data-c="free" style="width:84px"><span class="sm muted">minutes</span></div>
+    ${fits.length ? fits.map(f => `<div class="fit"><b>${e(f.t)}</b><span class="m">${dur(f.m)}</span><span class="sub">${e(f.sub)}</span></div>`).join('') : '<div class="hint">Nothing outstanding fits in that window.</div>'}</div>`}
    <div class="card"><h2>Backlog</h2>${DB.backlog.map(b => `<label class="line sm"><input type="checkbox" data-c="bl" data-id="${b.id}" ${b.done ? 'checked' : ''}><span class="grow" ${b.done ? 'style="text-decoration:line-through"' : ''}>${e(b.text)}</span><span class="mono">${dur(b.m)}</span><button class="lnk" data-a="blDel" data-id="${b.id}" aria-label="Remove this task">×</button></label>`).join('')}
     <div class="line"><input type="text" id="blText" class="grow" placeholder="Unfinished task, e.g. data analysis" aria-label="Backlog task"><input type="number" id="blMin" value="30" min="5" step="5" style="width:70px" aria-label="Minutes"><button class="btn sm" data-a="addBl">Add</button></div><div class="hint">Only you see your backlog.</div></div>
    <div><h3 style="margin:2px 0 8px">This week's target</h3><div class="stack">${tg.length ? tg.map(t => tCard(t)).join('') : '<div class="card hint">No target agreed for this week. Propose one under Targets.</div>'}</div></div>
   </div></div>`;
 };
 /* repeats that have come due: a round is due for a sample once the round before it was done long enough ago */
+const xProg = (p, x) => { let d = 0, r = 0, n = 0; for (const m of p.samples) { const c = expCount(x, m.id); d += c.d; r += c.r; n += c.n; } return { name: x.name, d, r, n }; };
+const pct = (d, n) => n ? Math.round(d / n * 100) : 0;
+const pbar = q => `<div class="pg"><b class="sm">${e(q.name)}</b><span class="sm muted">${q.d} of ${q.n} done${q.r ? ' · ' + q.r + ' on the bench' : ''} · ${pct(q.d, q.n)}%</span><div class="bar two"><i style="width:${q.n ? q.d / q.n * 100 : 0}%"></i><u style="width:${q.n ? q.r / q.n * 100 : 0}%"></u></div></div>`;
+V.timeline = () => {
+  if (!proj()) return noProj();
+  const p = proj(), xs = projExps().map(x => xProg(p, x)), all = xs.reduce((a, q) => ({ d: a.d + q.d, r: a.r + q.r, n: a.n + q.n }), { d: 0, r: 0, n: 0 });
+  const ts = DB.targets.filter(t => t.proj === p.id && t.status !== 'change'), people = [...new Set([S.user, ...p.members.filter(u => !sups().includes(u)), ...ts.map(t => t.user)])];
+  const weeks = Array.from({ length: 10 }, (_, i) => WK + (i - 3) * 7 * DAY), ST = { met: 'ok', open: 'info', proposed: '', missed: 'bad', explained: 'warn' };
+  const cell = (u, w) => ts.filter(t => t.user === u && t.week === w).map(t => { const s = tState(t); return `<span class="flag ${ST[s] || ''}" title="${e(tName(t))} · ${e(TS[s][1])}">${tDone(t)}/${tN(t)}</span>`; }).join(' ');
+  const act = DB.sessions.filter(s => s.proj === p.id && !s.doneAt && X(s.exp)), recent = DB.sessions.filter(s => s.proj === p.id && s.doneAt && s.doneAt > now() - 7 * DAY).sort((a, b) => b.doneAt - a.doneAt).slice(0, 12);
+  const wk = ts.filter(t => t.week === WK).sort((a, b) => (b.user === S.user) - (a.user === S.user));
+  return `<div class="cols"><div class="stack">
+   <div class="card"><div class="line"><h2 class="grow">How far each experiment is</h2><span class="sm muted">${all.d} of ${all.n} runs done · ${pct(all.d, all.n)}%</span></div>
+    ${all.n ? `<div class="bar two big"><i style="width:${all.d / all.n * 100}%"></i><u style="width:${all.r / all.n * 100}%"></u></div>` : ''}
+    ${xs.filter(q => q.n).map(pbar).join('') || '<div class="hint">No sample has an experiment planned yet. Tick them under Study plan.</div>'}
+    <div class="legend"><span><i style="background:var(--accent)"></i>done</span><span><i style="background:var(--warn)"></i>on the bench</span></div></div>
+   <div class="card"><h2>Week by week</h2><div class="hint">Each number is samples done out of samples in that person's target for the week. You can see your teammates' targets here, but only they and Prof Kaur can change them.</div>
+    <div class="scroll"><table class="mx tl"><thead><tr><th>Who</th>${weeks.map(w => `<th class="${w === WK ? 'now' : ''}">${dt(w)}${w === WK ? '<br><span class="sm">this week</span>' : ''}</th>`).join('')}</tr></thead>
+     <tbody>${people.map(u => `<tr><td>${e(nameOf(u))}${u === S.user ? ' <span class="muted">(you)</span>' : ''}</td>${weeks.map(w => `<td class="${w === WK ? 'now' : ''}">${cell(u, w) || '<span class="muted">·</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>
+   ${progHTML()}
+  </div><div class="stack">
+   <div class="card"><h2>On the bench in this study</h2>${act.map(s => `<div class="line sm"><span class="grow"><b>${e(nameOf(s.by))}</b> · ${e(X(s.exp).name)} ${e(s.target)} · ${s.mice.length} sample${s.mice.length === 1 ? '' : 's'}</span><span class="muted">step ${s.stepIdx + 1} of ${s.steps.length}</span></div>`).join('') || '<div class="hint">Nobody has a session running.</div>'}</div>
+   <div class="card"><h2>Finished in the last 7 days</h2>${recent.map(s => `<div class="line sm"><span class="grow"><b>${e(nameOf(s.by))}</b> · ${e(s.pname)} ${e(s.target)} × ${s.mice.length}</span><span class="muted">${dt(s.doneAt)}</span></div>`).join('') || '<div class="hint">Nothing finished this week yet.</div>'}</div>
+   <div><h3 style="margin:2px 0 8px">This week's targets in ${e(p.name)}</h3><div class="stack">${wk.map(t => tCard(t)).join('') || '<div class="card hint">Nobody has a target for this week.</div>'}</div></div>
+  </div></div>`;
+};
+V.others = () => {
+  const mine = new Set(DB.projects.map(p => p.id)), L = DB.progress.slice().sort((a, b) => (mine.has(b.id) - mine.has(a.id)) || byName(a, b));
+  if (!L.length) return '<div class="card"><h2>Other projects in the lab</h2><div class="hint">No project has shared its progress yet. A project appears here once one of its members has opened the tracker since this page was added.</div></div>';
+  return `<div class="stack"><div class="card"><h2>Projects in the lab</h2><div class="hint">Everyone in the lab can see how far each project is: its name, who is in it, and the count of runs done per experiment. Samples, records and results stay inside each project.</div></div>
+   <div class="cols even">${L.map(q => { const xs = (q.exps || []).filter(x => x.n), all = xs.reduce((a, x) => ({ d: a.d + x.d, r: a.r + (x.r || 0), n: a.n + x.n }), { d: 0, r: 0, n: 0 });
+     return `<div class="card pcard" data-pal="${e(palOf(q))}"><div class="line"><h2 class="grow">${e(q.name)}</h2>${mine.has(q.id) ? flag('info', 'You are in this') : ''}</div>
+      <div class="sm muted">${(q.members || []).map(nameOf).map(e).join(', ') || 'No members listed'} · ${q.samples || 0} samples · updated ${dt(q.at || now())}</div>
+      ${all.n ? `<div class="line sm"><b class="grow">Overall</b><span class="muted">${all.d} of ${all.n} runs · ${pct(all.d, all.n)}%</span></div><div class="bar two big"><i style="width:${all.d / all.n * 100}%"></i><u style="width:${all.r / all.n * 100}%"></u></div>${xs.map(pbar).join('')}` : '<div class="hint">Nothing planned yet.</div>'}</div>`; }).join('')}</div></div>`;
+};
+/* each project's progress is kept as a small shared summary so the rest of the lab can see it without opening the project */
+let progT = null;
+function syncProgress() {
+  clearTimeout(progT); progT = setTimeout(() => {
+    if (!S.ready || !S.fb) return; const ops = [];
+    for (const p of DB.projects) { const v = { name: p.name, pal: palOf(p), members: p.members, samples: p.samples.length, exps: p.exps.map(X).filter(Boolean).map(x => xProg(p, x)) }, old = SRV.get('progress/' + p.id), o = old ? { name: old.name, pal: old.pal, members: old.members, samples: old.samples, exps: old.exps } : null;
+      if (!o || canon(o) !== canon(v)) ops.push({ op: 'set', path: 'progress/' + p.id, data: { ...v, at: now(), by: S.user } }); }
+    if (ops.length) B.commit(ops).catch(() => {});
+  }, 2500);
+}
 function dueList() {
   const out = [], day0 = t => new Date(t).setHours(0, 0, 0, 0);
   for (const x of projExps()) {
@@ -602,13 +657,15 @@ V.overview = () => {
   if (!proj()) return noProj();
   const xs = projExps(), ms = proj().samples;
   if (!xs.length || !ms.length) return `<div class="card"><h2>${e(proj().name)}</h2><div class="hint">This study has no ${ms.length ? 'experiments' : 'samples'} yet. Add them under Study plan and the grid of every sample against every experiment appears here.</div><div class="line"><button class="btn pri" data-a="tab" data-k="plan">Open Study plan</button></div></div>`;
-  return `<div class="stack"><div class="legend"><span><i style="background:var(--ok-soft)"></i>done</span><span><i style="background:var(--warn-soft)"></i>on the bench or partly done</span><span><i style="background:var(--surface)"></i>to do</span><span>Click a sample for its record, or a column heading for that experiment.</span></div>
-  <div class="scroll"><table class="mx"><thead><tr><th>Sample</th><th>Group</th>${xs.map(x => `<th><button class="lnk" data-a="goExp" data-x="${x.id}">${e(x.name)}</button></th>`).join('')}</tr>
-  <tr><td>${ms.length} samples</td><td class="g">done</td>${xs.map(x => { let d = 0, n = 0; ms.forEach(m => { const c = expCount(x, m.id); d += c.d; n += c.n; }); return `<td>${d}/${n}</td>`; }).join('')}</tr></thead>
-  <tbody>${ms.map(m => `<tr><td><button class="lnk mono" data-a="goMouse" data-m="${e(m.id)}">${e(m.id)}</button></td><td class="g">${e(m.group)}</td>${xs.map(x => {
+  const planned = m => xs.some(x => expCount(x, m.id).n), withX = ms.filter(planned), rest = ms.filter(m => !planned(m));   // samples with an experiment planned come first
+  const rowOf = m => `<tr><td><button class="lnk mono" data-a="goMouse" data-m="${e(m.id)}">${e(m.id)}</button></td><td class="g">${gtag(m.group)}</td>${xs.map(x => {
     const c = expCount(x, m.id);
     if (!c.n) return '<td class="g" style="text-align:center">–</td>'; if (x.targets) return `<td class="${c.d === c.n ? 'done' : c.d || c.r ? 'part' : ''}">${c.d}/${c.n}</td>`; return `<td class="${c.d ? 'done' : c.r ? 'run' : ''}">${c.d ? '✓' : c.r ? '◔' : ''}</td>`;
-  }).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+  }).join('')}</tr>`;
+  return `<div class="stack"><div class="legend"><span><i style="background:var(--ok-soft)"></i>done</span><span><i style="background:var(--warn-soft)"></i>on the bench or partly done</span><span><i style="background:var(--surface)"></i>to do</span><span>Click a sample for its record, or a column heading for that experiment.</span></div>
+  <div class="scroll"><table class="mx"><thead><tr><th>Sample</th><th>Group</th>${xs.map(x => `<th><button class="lnk" data-a="goExp" data-x="${x.id}">${e(x.name)}</button></th>`).join('')}</tr>
+  <tr><td>${withX.length} of ${ms.length} samples planned</td><td class="g">done</td>${xs.map(x => { let d = 0, n = 0; ms.forEach(m => { const c = expCount(x, m.id); d += c.d; n += c.n; }); return `<td>${d}/${n}</td>`; }).join('')}</tr></thead>
+  <tbody>${withX.map(rowOf).join('')}${rest.length ? `<tr><td colspan="${xs.length + 2}" style="text-align:left;background:var(--sunk)"><button class="lnk" data-a="ovRest">${S.ovRest ? 'Hide' : 'Show'} the ${rest.length} sample${rest.length === 1 ? '' : 's'} with no experiment planned</button></td></tr>` + (S.ovRest ? rest.map(rowOf).join('') : '') : ''}</tbody></table></div></div>`;
 };
 
 function mouseRows() {
@@ -623,7 +680,7 @@ V.mice = () => {
   const m = proj().samples.find(q => q.id === S.selMouse), xs = projExps(); let det = '<div class="empty">Choose a sample on the left to see every experiment for it.</div>';
   if (m) {
     let d = 0, n = 0; const cs = xs.map(x => { const c = expCount(x, m.id); d += c.d; n += c.n; return c; });
-    det = `<div class="hdr"><button class="back" data-a="back">← All samples</button><div class="name"><span class="mono">${e(m.id)}</span>${(m.group ? flag('info', m.group) : '')}</div><div class="who">${e(proj().name)} · ${d} of ${n} runs done</div>
+    det = `<div class="hdr"><button class="back" data-a="back">← All samples</button><div class="name"><span class="mono">${e(m.id)}</span>${gtag(m.group)}</div><div class="who">${e(proj().name)} · ${d} of ${n} runs done</div>
      <div class="chips">${xs.map((x, i) => !cs[i].n ? '' : `<button class="chip ${cs[i].d === cs[i].n ? 'done' : cs[i].d || cs[i].r ? 'part' : ''} ${S.mx === x.id ? 'view' : ''}" data-a="mx" data-x="${x.id}">${e(x.name)}${x.targets ? ' ' + cs[i].d + '/' + cs[i].n : ''}</button>`).join('')}</div></div>
     <div class="body">${n ? '' : '<div class="hint">Nothing is planned on this sample. It is recorded as held, for example in storage.</div>'}${xs.map((x, i) => { const c = cs[i]; if (!c.n) return ''; return `<details class="stage" ${S.mx === x.id || c.r || (!x.targets && !S.mx) ? 'open' : ''}><summary>${e(x.name)} ${c.d === c.n ? flag('ok', 'done') : c.r ? flag('warn', 'on the bench') : ''}<span class="cnt">${c.d} of ${c.n}</span></summary>${(x.targets || ['']).filter(t => stOf(x.id, t, m.id) !== 'na').map(t => runRow(x, t, m.id, e(t || x.name))).join('')}</details>`; }).join('')}</div>`;
   }
@@ -648,7 +705,7 @@ V.exps = () => {
       ${weekTargetMice(x.id, t).length ? `<button class="btn sm" data-a="pickT">Tick this week's target (${weekTargetMice(x.id, t).length})</button>` : ''}<button class="btn sm" data-a="pick25">Tick the next 25</button><button class="btn sm" data-a="pick0">Clear</button>
       ${lv.length > 1 ? `<select id="variant" data-c="variant" aria-label="Protocol variant">${lv.map(n => `<option value="${n.id}" ${n === node ? 'selected' : ''}>${e(vname(p, n))}</option>`).join('')}</select>` : ''}
       <button class="btn sm pri" data-a="start" ${S.picked.size ? '' : 'disabled'}>Start bench session (${S.picked.size})</button></div>
-     ${msx.length ? '' : '<div class="hint">No samples are assigned to this yet. Tick them under Study plan.</div>'}<div class="list">${msx.map(m => runRow(x, t, m.id, `<span class="mono">${e(m.id)}</span> <span class="muted sm" style="font-weight:400">${e(m.group)}</span>`, stOf(x.id, t, m.id) === 'todo' ? `<input type="checkbox" data-c="pick" data-m="${e(m.id)}" aria-label="Tick ${e(m.id)}" ${S.picked.has(m.id) ? 'checked' : ''}>` : '')).join('')}</div></div>`;
+     ${msx.length ? '' : '<div class="hint">No samples are assigned to this yet. Tick them under Study plan.</div>'}<div class="list">${msx.map(m => runRow(x, t, m.id, `<span class="mono">${e(m.id)}</span> ${gtag(m.group)}`, stOf(x.id, t, m.id) === 'todo' ? `<input type="checkbox" data-c="pick" data-m="${e(m.id)}" aria-label="Tick ${e(m.id)}" ${S.picked.has(m.id) ? 'checked' : ''}>` : '')).join('')}</div></div>`;
   }
   return `<div class="split ${x ? 'has-sel' : ''}"><aside class="pane-list"><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
 };
@@ -709,9 +766,9 @@ V.targets = () => {
      <label class="fld" for="dWk">Week<select id="dWk" data-c="dWk">${Array.from({ length: 27 }, (_, i) => WK + i * 7 * DAY).map(w => `<option value="${w}" ${w === D.week ? 'selected' : ''}>${wkLabel(w)}${w === WK ? ' (this week)' : ''}</option>`).join('')}</select></label>
      <h3>1. Pick an experiment, then click the samples</h3>
      <select id="dExp" data-c="dExp" aria-label="Experiment">${opts.map(o => { const [a, b] = o.split('|'); return `<option value="${e(o)}" ${o === D.exp ? 'selected' : ''}>${e(X(a).name)}${b ? ' ' + e(b) : ''}</option>`; }).join('')}</select>
-     <div class="mcs">${proj().samples.filter(m => stOf(dx, dg, m.id) !== 'na').map(m => { const st = planned.has(m.id) ? 'plan' : stOf(dx, dg, m.id); return st === 'todo' ? `<button class="mc ${D.pick.has(m.id) ? 'on' : ''}" data-a="dPick" data-m="${e(m.id)}" aria-pressed="${D.pick.has(m.id)}">${e(m.id)}</button>` : `<span class="mc ${st}">${e(m.id)}${st === 'done' ? ' ✓' : ''}</span>`; }).join('') || '<span class="hint">No samples are assigned to this experiment yet. Tick them under Study plan.</span>'}</div>
+     <div class="mcs">${proj().samples.filter(m => stOf(dx, dg, m.id) !== 'na').map(m => { const st = planned.has(m.id) ? 'plan' : stOf(dx, dg, m.id); const cl = st === 'todo' && claimOf(dx, dg, m.id); if (cl) return `<span class="mc claimed" title="Already in ${e(nameOf(cl))}'s target. They can hand it over from their Targets page.">${e(m.id)} · ${e(first(cl))}</span>`; return st === 'todo' ? `<button class="mc ${D.pick.has(m.id) ? 'on' : ''}" data-a="dPick" data-m="${e(m.id)}" aria-pressed="${D.pick.has(m.id)}">${e(m.id)}</button>` : `<span class="mc ${st}">${e(m.id)}${st === 'done' ? ' ✓' : ''}</span>`; }).join('') || '<span class="hint">No samples are assigned to this experiment yet. Tick them under Study plan.</span>'}</div>
      <div class="line"><button class="btn sm" data-a="dNext">Next 25 to do</button><button class="btn sm" data-a="dClear">Clear</button><span class="sm muted grow">${D.pick.size} picked${D.pick.size ? ', about ' + dur(est(dx, D.pick.size)) + ' as one batch' : ''}</span><button class="btn sm pri" data-a="dAdd" ${D.pick.size ? '' : 'disabled'}>Add to the plan</button></div>
-     <div class="hint">Green is already done, amber is on the bench or already in this plan.</div>
+     <div class="hint">Green is already done, amber is on the bench or already in this plan. Grey with a name is already in a teammate's target: only they can hand it over.</div>
      <h3>2. The plan for ${wkLabel(D.week)}</h3>
      ${D.items.map((i, k) => `<div class="line sm"><span class="grow"><b>${e(iName(i))}</b> · <span class="mono">${e(i.mice.join(', '))}</span> · about ${dur(est(i.exp, i.mice.length))}</span><button class="btn sm" data-a="dDel" data-i="${k}">Remove</button></div>`).join('') || '<div class="hint">Nothing added yet. You can add several experiments to the same week.</div>'}
      <div class="sm"><b>Does the week fit?</b> <span class="muted">Only you see this${L.total && !D.items.length ? '; it already includes what is planned for that week' : ''}.</span></div>${loadHTML(L)}
@@ -772,12 +829,13 @@ const pTypes = () => proj().types || [];
 const sType = id => id.includes(' ') ? id.slice(id.indexOf(' ') + 1) : '';
 const planTypes = () => [...new Set(proj().samples.map(m => sType(m.id)).filter(Boolean))];
 const planRows = () => proj().samples.filter(m => (!S.planType || sType(m.id) === S.planType) && (!S.planGroup || m.group === S.planGroup) && (!S.planQ || low(m.id).includes(low(S.planQ))));
+const gtag = g => { if (!g || !proj()) return ''; const gs = pGroups(), i = Math.max(0, gs.indexOf(g)); return `<span class="gtag" style="--g:${Math.round(8 + i * (40 / Math.max(1, gs.length - 1)))}%">${e(g)}</span>`; };
 const pGroups = () => [...new Set(proj().samples.map(m => m.group).concat(proj().xg || []).filter(Boolean))];
 V.plan = () => {
   if (!proj()) return noProj();
   const p = proj(), xs = projExps(), cols = planCols(), inUse = new Set(xs.map(x => x.proto)), nm = nextMouse(), selT = pTypes().filter(t => S.addT.has(t));
   const types = planTypes(), groups = pGroups(); if (!types.includes(S.planType)) S.planType = ''; if (!groups.includes(S.planGroup)) S.planGroup = ''; const rows = planRows();
-  return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><button class="btn pri" data-a="newStudy">New study</button></div>
+  return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><span class="sm muted">Study colour</span><span class="swatches" role="group" aria-label="Study colour">${PALS.map(([k, l]) => `<button class="sw ${palOf(p) === k ? 'on' : ''}" data-pal="${k}" data-a="setPal" data-k="${k}" title="${l}" aria-label="${l}" aria-pressed="${palOf(p) === k}"></button>`).join('')}</span></div>
    <div class="hint">Set a study up in three steps: list the samples you hold, choose the experiments from the lab protocols, then tick which sample gets which experiment. Overview, Samples, Experiments and Targets all follow what is ticked here.</div></div>
   <div class="cols">
    <div class="card"><h2>1. Samples <span class="muted sm">${p.samples.length} held</span></h2>
@@ -810,7 +868,7 @@ V.plan = () => {
     <span class="sm muted">${rows.length} of ${p.samples.length} shown</span>${rows.length < p.samples.length ? '<button class="lnk sm" data-a="planClear">Show all</button>' : ''}</div>
    <div class="hint">Tick a box to plan that experiment on that sample. Boxes where a run has already started are locked. "all / none" fills or clears a whole row, or a whole column for the samples shown.</div>
    ${p.samples.length && cols.length ? `<div class="scroll" style="max-height:70vh;overflow:auto"><table class="mx"><thead><tr><th>Sample</th>${cols.map((c, i) => `<th>${e(c.x.name)}${c.t ? '<br><span class="mono">' + e(c.t) + '</span>' : ''}<br><button class="lnk" data-a="asgCol" data-i="${i}">all / none</button></th>`).join('')}</tr></thead>
-    <tbody>${rows.map(m => `<tr><td><span class="mono">${e(m.id)}</span>${m.group ? ` <span class="muted sm">${e(m.group)}</span>` : ''} <button class="lnk sm" style="font-weight:400" data-a="asgRow" data-m="${e(m.id)}">all / none</button></td>${cols.map(c => { const k = key(c.x.id, c.t, m.id); return `<td><input type="checkbox" data-c="asg" data-k="${e(k)}" aria-label="${e(m.id + ' ' + c.x.name + ' ' + c.t)}" ${DB.asg.has(k) ? 'checked' : ''} ${IDX.has(k) ? 'disabled' : ''}></td>`; }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length + 1}" class="muted">No sample matches these filters.</td></tr>`}</tbody></table></div>`
+    <tbody>${rows.map(m => `<tr><td><span class="mono">${e(m.id)}</span> ${gtag(m.group)} <button class="lnk sm" style="font-weight:400" data-a="asgRow" data-m="${e(m.id)}">all / none</button></td>${cols.map(c => { const k = key(c.x.id, c.t, m.id); return `<td><input type="checkbox" data-c="asg" data-k="${e(k)}" aria-label="${e(m.id + ' ' + c.x.name + ' ' + c.t)}" ${DB.asg.has(k) ? 'checked' : ''} ${IDX.has(k) ? 'disabled' : ''}></td>`; }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length + 1}" class="muted">No sample matches these filters.</td></tr>`}</tbody></table></div>`
       : '<div class="hint">Add at least one sample and one experiment above and the grid appears here.</div>'}</div></div>`;
 };
 
@@ -971,7 +1029,12 @@ function gateView() {
 }
 
 /* ---------------- render ---------------- */
-const TABS = [['today', 'Today'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['protos', 'Protocols'], ['reag', 'Reagents'], ['targets', 'Targets'], ['plan', 'Study plan'], ['duties', 'Lab duties'], ['lab', 'Lab and access']];
+const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['plan', 'Study plan']];
+const LAB_TABS = [['protos', 'Protocols'], ['reag', 'Reagents'], ['duties', 'Lab duties'], ['others', 'Other projects'], ['lab', 'Lab and access']];
+const TABS = [...STUDY_TABS, ...LAB_TABS];
+/* a study can pick a colour; everything inside that study's space is drawn in it, for everyone */
+const PALS = [['', 'Teal'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'], ['green', 'Green'], ['amber', 'Amber'], ['red', 'Red'], ['slate', 'Slate']];
+const palOf = p => (p && PALS.some(q => q[0] === p.pal) && p.pal) || '';
 let stale = false;
 const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio' && !!a.closest('#app,#modal'); };
 /* a change arriving from Firestore must not wipe a field someone is typing in: redraw once they leave it */
@@ -980,26 +1043,35 @@ function safe(fn, what) { try { return fn(); } catch (err) { console.error(err);
 function render() {
   stale = false; lastSig = sigNow();
   const g = gateView(); welcomeCheck();
-  if (g) { $('#app').innerHTML = g; $('#modal').innerHTML = ''; return; }
+  if (g) { $('#app').innerHTML = g; $('#modal').innerHTML = ''; render.mh = ''; return; }
   const vis = visProj();
   if (proj() && S.selExp === undefined) S.selExp = proj().exps[0];
   const keep = S.tab === render.tab ? [...document.querySelectorAll('#app .scroll, #app .rows')].map(el => [el.scrollTop, el.scrollLeft]) : []; render.tab = S.tab;
   const lock = lockFor(S.user), nn = inbox().length;
-  $('#app').innerHTML = `<header class="top"><span class="brand">Lab Bench Tracker</span><span class="sp"></span>
-    ${vis.length ? `<label class="fld" for="selProj">Project<select id="selProj" data-c="proj">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select></label>` : ''}
+  const inStudy = STUDY_TABS.some(t => t[0] === S.tab), pal = palOf(proj()), labName = DB.lab.name || 'the lab';
+  const tabBtn = ([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-a="tab" data-k="${k}">${l}${k === 'reag' && lowList().length ? ' ' + flag('bad', lowList().length + ' low') : ''}${k === 'protos' && S.edit ? ' ' + flag('warn', 'unsaved') : ''}</button>`;
+  $('#app').innerHTML = `<header class="top"><img class="logo" src="logo.png" alt="Kaur Laboratory" width="36" height="36"><span class="brand">Lab Bench Tracker</span><span class="sp"></span>
     <span id="online" class="online" role="group" aria-label="Online now">${onlineHTML()}</span>
-    <span class="sm">${e(S.fb.displayName || S.user)}</span>${flag(isSup() ? 'info' : isAdmin() ? 'ok' : '', roleOf(S.user))}
+    <span class="sm">${e(S.fb.displayName || S.user)}</span>${flag(isSup() ? 'info' : isAdmin() ? 'ok' : '', S.asMember && realAdmin() ? 'Member view' : roleOf(S.user))}
+    ${realAdmin() ? `<button class="btn sm" data-a="viewAs" title="Switch between what an admin sees and what an ordinary member sees">${S.asMember ? 'Back to admin view' : 'See as a member'}</button>` : ''}
     <button class="btn" data-a="inbox">Inbox ${nn ? flag('info', nn) : ''}</button><button class="btn" data-a="signout">Sign out</button></header>
-   <nav class="tabs" aria-label="Sections">${TABS.map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-a="tab" data-k="${k}">${l}${k === 'reag' && lowList().length ? ' ' + flag('bad', lowList().length + ' low') : ''}${k === 'protos' && S.edit ? ' ' + flag('warn', 'unsaved') : ''}</button>`).join('')}</nav>
+   <nav class="nav2" aria-label="Sections">
+    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.map(tabBtn).join('')}</div></div>
+    <div class="navg lab ${inStudy ? '' : 'here'}"><div class="navh"><span class="navt">Whole lab</span><span class="sm muted">shared by everyone in ${e(labName)}</span></div><div class="tabs">${LAB_TABS.map(tabBtn).join('')}</div></div>
+   </nav>
+   ${inStudy ? (proj() ? `<div class="scope study" data-pal="${pal}"><b>${e(proj().name)}</b><span>You are inside this study. What you add or change on this page belongs to ${e(proj().name)} only.</span></div>` : '')
+     : `<div class="scope lab"><b>Whole lab</b><span>This page is shared. What you add or change here is seen and used by everyone in ${e(labName)}.</span></div>`}
    ${lock ? `<section class="lock"><h2>Last week's target was missed</h2><div>${e(tName(lock))}, week of ${wkLabel(lock.week)}: <b>${tDone(lock)} of ${tN(lock)}</b> done. Before you carry on, tell Prof Kaur what happened. She is notified as soon as you send it.</div>
      <div class="g3"><label for="exWhat">What happened<textarea id="exWhat" rows="3"></textarea></label><label for="exWhy">Why that meant the target was missed<textarea id="exWhy" rows="3"></textarea></label><label for="exPlan">Plan to catch up<textarea id="exPlan" rows="3"></textarea></label></div>
      <div class="line"><button class="btn pri" data-a="excuse" data-id="${lock.id}">Send to Prof Kaur and unlock</button><span class="err" id="exErr"></span></div></section>` : ''}
-   <div class="view" ${lock ? 'inert' : ''}>${safe(V[S.tab], 'tab')}</div>`;
+   <div class="view" data-pal="${inStudy ? pal : ''}" ${lock ? 'inert' : ''}>${safe(V[S.tab] || V.today, 'tab')}</div>`;
   document.querySelectorAll('#app .scroll, #app .rows').forEach((el, i) => { if (keep[i]) { el.scrollTop = keep[i][0]; el.scrollLeft = keep[i][1]; } });
-  $('#modal').innerHTML = safe(modalHTML, 'window'); tick(); saveState();
+  const mh = safe(modalHTML, 'window'); if (mh !== render.mh) { $('#modal').innerHTML = mh; render.mh = mh; }   // left alone when unchanged, so an open window does not flicker or lose what is typed
+  tick(); saveState();
 }
 function tick() { document.querySelectorAll('[data-until]').forEach(el => { const l = Math.round((+el.dataset.until - now()) / 1000); el.textContent = l > 0 ? (l >= 3600 ? Math.floor(l / 3600) + ':' : '') + String(Math.floor(l % 3600 / 60)).padStart(2, '0') + ':' + String(l % 60).padStart(2, '0') + ' left' : 'time is up'; }); }
 setInterval(tick, 1000);
+setInterval(() => { if (S.ready && S.tab === 'today' && DB.sessions.some(s => !s.doneAt && s.waitStart)) softRender(); }, 60000);   // keeps "what fits" in step with the time left
 
 /* ---------------- actions ---------------- */
 const val = id => ($('#' + id)?.value || '').trim();
@@ -1054,9 +1126,12 @@ const A = {
     const p = PR(d.id); if (!p || prompt(`This deletes the project and every record in it. Type the project name to confirm: ${p.name}`) !== p.name) return false;
     DB.projects = DB.projects.filter(q => q.id !== p.id);
     for (const k of ['exps', 'sessions', 'targets', 'files']) DB[k] = DB[k].filter(q => q.proj !== p.id);
-    buildIdx(); toast('Project deleted.');
+    B.commit([{ op: 'delete', path: 'progress/' + p.id }]).catch(() => {}); buildIdx(); toast('Project deleted.');
   },
-  tab: d => { syncEdit(); S.tab = d.k; },   // a protocol being built stays as it is while you look at another tab
+  tab: d => { syncEdit(); S.tab = d.k; },
+  viewAs: () => { S.asMember = !S.asMember; S.visOn = false; toast(S.asMember ? 'Member view: this is what a lab member without admin rights sees.' : 'Admin view.'); },
+  setPal: d => { const p = proj(); if (!p) return false; if (d.k) p.pal = d.k; else delete p.pal; },
+  ovRest: () => { S.ovRest = !S.ovRest; },   // a protocol being built stays as it is while you look at another tab
   inbox: () => S.modal = { type: 'inbox' }, close: () => S.modal = null, closeBg: (d, el, ev) => { if (ev.target !== el) return false; S.modal = null; },
   // A notice still waiting to be emailed is only hidden; the mail sheet removes it once it has gone out.
   inboxClear: () => { DB.notices = DB.notices.filter(n => { if (n.to !== S.user) return true; if (n.mailedAt === null && now() - n.at < 7 * DAY) { n.cleared = now(); return true; } return false; }); },
@@ -1235,9 +1310,18 @@ const A = {
     const nm = val('npName'); if (!nm) return mErr('Give it a name.'); const id = nid();
     DB.protocols.push({ id, name: nm, by: S.user, nodes: [{ id: id + '-s', parent: null, name: 'Standard', revs: [mkRev(1, now(), S.user, 'First version', [])] }] }); S.selProto = id; S.selNode = id + '-s'; S.viewRev = null; S.edit = { steps: [], note: '', name: nm }; S.modal = null; S.tab = 'protos';
   },
-  propose: () => { const D = S.draft; if (!D.items.length) return false; const tg = { id: nid(), user: S.user, proj: S.project, week: D.week, status: 'proposed', excuse: null, override: D.override, items: D.items }; DB.targets.push(tg); noticeSup(`${users[S.user].name} proposed a target for ${wkLabel(tg.week)}: ${tName(tg)}. It needs your agreement.`); S.draft = newDraft(); toast('Sent to Prof Kaur.'); },
-  dPick: d => { const p = S.draft.pick; p.has(d.m) ? p.delete(d.m) : p.add(d.m); }, dClear: () => S.draft.pick.clear(),
-  dNext: () => { const D = S.draft, [x, t] = D.exp.split('|'), pl = new Set(D.items.filter(i => i.exp === x && i.target === t).flatMap(i => i.mice)); D.pick.clear(); for (const m of proj().samples) { if (D.pick.size >= 25) break; if (!pl.has(m.id) && stOf(x, t, m.id) === 'todo') D.pick.add(m.id); } },
+  handOver: d => {
+    const t = DB.targets.find(q => q.id === d.id), k = +d.k, i = t && t.items[k], to = val('ho' + d.id + '_' + k); if (!i || t.user !== S.user || !to) return false;
+    const pk = S.tpick && S.tpick.t === t.id && S.tpick.k === k && S.tpick.set.size ? S.tpick.set : null, give = i.mice.filter(m => stOf(i.exp, i.target, m) === 'todo' && (!pk || pk.has(m))); if (!give.length) return false;
+    i.mice = i.mice.filter(m => !give.includes(m)); if (!i.mice.length) t.items.splice(k, 1); if (!t.items.length) DB.targets = DB.targets.filter(q => q !== t);
+    const nt = { id: nid(), user: to, proj: t.proj, week: Math.max(t.week, WK), status: t.status === 'agreed' ? 'agreed' : 'proposed', excuse: null, override: false, items: [{ exp: i.exp, target: i.target, mice: give }], from: S.user }; DB.targets.push(nt);
+    notice(to, `${users[S.user].name} handed you ${tName(nt)} for the week of ${wkLabel(nt.week)}.`); noticeSup(`${users[S.user].name} handed ${tName(nt)} (week of ${wkLabel(nt.week)}) to ${nameOf(to)}.`);
+    S.tpick = null; toast(`Handed ${give.length} sample${give.length === 1 ? '' : 's'} to ${nameOf(to)}.`);
+  },
+  propose: () => { const D = S.draft; let lost = 0; D.items.forEach(i => { const n = i.mice.length; i.mice = i.mice.filter(m => !claimOf(i.exp, i.target, m)); lost += n - i.mice.length; }); D.items = D.items.filter(i => i.mice.length); if (lost) { toast(`${lost} sample${lost === 1 ? ' was' : 's were'} taken into a teammate's target in the meantime and removed from your plan. Check it and send again.`); return; }
+    if (!D.items.length) return false; const tg = { id: nid(), user: S.user, proj: S.project, week: D.week, status: 'proposed', excuse: null, override: D.override, items: D.items }; DB.targets.push(tg); noticeSup(`${users[S.user].name} proposed a target for ${wkLabel(tg.week)}: ${tName(tg)}. It needs your agreement.`); S.draft = newDraft(); toast('Sent to Prof Kaur.'); },
+  dPick: d => { const p = S.draft.pick, [x, t] = S.draft.exp.split('|'); if (claimOf(x, t, d.m)) return false; p.has(d.m) ? p.delete(d.m) : p.add(d.m); }, dClear: () => S.draft.pick.clear(),
+  dNext: () => { const D = S.draft, [x, t] = D.exp.split('|'), pl = new Set(D.items.filter(i => i.exp === x && i.target === t).flatMap(i => i.mice)); D.pick.clear(); for (const m of proj().samples) { if (D.pick.size >= 25) break; if (!pl.has(m.id) && stOf(x, t, m.id) === 'todo' && !claimOf(x, t, m.id)) D.pick.add(m.id); } },
   dAdd: () => { const D = S.draft, [x, t] = D.exp.split('|'); if (!D.pick.size) return false; D.items.push({ exp: x, target: t, mice: [...D.pick] }); D.pick.clear(); D.override = false; },
   dDel: d => { S.draft.items.splice(+d.i, 1); S.draft.override = false; }, dWkSet: d => { S.draft.week = +d.w; S.draft.override = false; },
   tpick: d => { const id = d.id, k = +d.k; if (!S.tpick || S.tpick.t !== id || S.tpick.k !== k) S.tpick = { t: id, k, set: new Set() }; const p = S.tpick.set; p.has(d.m) ? p.delete(d.m) : p.add(d.m); },
