@@ -23,7 +23,7 @@ function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = fals
 const errMsg = err => (err && err.code === 'permission-denied') ? 'Not allowed: your account does not have permission for that.' : (err && err.message) || String(err);
 
 /* ---------------- state ---------------- */
-const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], gone: [], progress: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [] };
+const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], gone: [], progress: [], obs: [], animals: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [] };
 const S = { fb: null, user: '', ready: false, labErr: null, people: new Map(), tab: 'today', project: null, selMouse: null, mx: null, selExp: undefined, selTarget: '', picked: new Set(), selProto: null, selNode: null, viewRev: null, edit: null, openSession: null, freeMin: null, q: '', modal: null, variant: null, tpick: null, draft: null, planX: '', dOff: 0, addT: new Set(), addG: '', smOpen: false };
 let IDX = new Map();
 const newDraft = () => ({ week: WK + 7 * DAY, items: [], pick: new Set(), exp: '', override: false }); S.draft = newDraft();
@@ -83,7 +83,7 @@ function syncProjSubs() {
     for (const k of [...pending]) if (k.startsWith('p:' + id + ':')) pending.delete(k);
   }
   for (const id of ids) if (!projSubs.has(id))
-    projSubs.set(id, ['exps', 'sessions', 'targets', 'files', 'asg'].map(c => watch('p:' + id + ':' + c, 'projects/' + id + '/' + c, false, null, null, true)));
+    projSubs.set(id, ['exps', 'sessions', 'targets', 'files', 'asg', 'obs', 'animals'].map(c => watch('p:' + id + ':' + c, 'projects/' + id + '/' + c, false, null, null, true)));
 }
 /* who has the site open: each open tab writes a small "here" note every few minutes */
 let PRES = new Map(), presOff = null, presT = null;
@@ -158,11 +158,12 @@ function rebuild() {
   const want = S.fb && isMember() ? (isSup() ? 'sup' : 'mem') : null;
   if (want !== dataMode) { if (want) startData(want); else stopData(); }
   DB.projects = col('projects').map(p => ({ desc: '', ...p, members: p.members || [], exps: p.exps || [], samples: p.samples || [] })).sort(byName);
-  DB.exps = []; DB.sessions = []; DB.targets = []; DB.files = []; DB.asg = new Set();
+  DB.exps = []; DB.sessions = []; DB.targets = []; DB.files = []; DB.obs = []; DB.animals = []; DB.asg = new Set();
   for (const p of DB.projects) {
     const b = 'projects/' + p.id;
     col(b + '/exps').forEach(x => DB.exps.push({ ...x, proj: p.id }));
-    col(b + '/sessions').forEach(s => DB.sessions.push({ ...s, proj: p.id, ticks: s.ticks || {}, notes: s.notes || [], steps: s.steps || [], mice: s.mice || [] }));
+    col(b + '/sessions').forEach(s => DB.sessions.push({ ...s, proj: p.id, ticks: s.ticks || {}, notes: s.notes || [], steps: s.steps || [], mice: s.mice || [], res: s.res || {} }));
+    col(b + '/obs').forEach(o => DB.obs.push({ ...o, proj: p.id })); col(b + '/animals').forEach(a => DB.animals.push({ ...a, proj: p.id, files: a.files || [] }));
     col(b + '/targets').forEach(t => DB.targets.push({ ...t, proj: p.id, items: t.items || [] }));
     col(b + '/files').forEach(f => DB.files.push({ ...f, proj: p.id }));
     col(b + '/asg').forEach(a => (a.k || []).forEach(k => DB.asg.add(a.id + '|' + k)));
@@ -185,7 +186,7 @@ function rebuild() {
 }
 /* Where you are (tab, study, what is open, an unsaved protocol being built) is kept for this browser tab,
    so a refresh comes back to the same place. It is kept in the tab only and cleared on sign-out. */
-const KEEP = ['tab', 'project', 'selMouse', 'selExp', 'selTarget', 'selProto', 'selNode', 'viewRev', 'openSession', 'planX', 'planType', 'planGroup', 'planQ', 'dOff', 'q', 'variant', 'edit', 'visOn', 'visDay'];
+const KEEP = ['monView', 'monDay', 'selAnimal', 'mAll', 'tab', 'project', 'selMouse', 'selExp', 'selTarget', 'selProto', 'selNode', 'viewRev', 'openSession', 'planX', 'planType', 'planGroup', 'planQ', 'dOff', 'q', 'variant', 'edit', 'visOn', 'visDay'];
 let restored = false;
 function saveState() {
   if (!S.fb || !S.ready || !restored) return;
@@ -215,7 +216,7 @@ function docs() {
   if (DB.lab) put('config/lab', DB.lab);
   const pids = new Set(DB.projects.map(p => p.id));
   for (const p of DB.projects) put('projects/' + p.id, p);
-  for (const [name, list] of [['exps', DB.exps], ['sessions', DB.sessions], ['targets', DB.targets], ['files', DB.files]])
+  for (const [name, list] of [['exps', DB.exps], ['sessions', DB.sessions], ['targets', DB.targets], ['files', DB.files], ['obs', DB.obs], ['animals', DB.animals]])
     for (const x of list) if (pids.has(x.proj)) put(`projects/${x.proj}/${name}/${x.id}`, x);
   const ag = {};
   for (const k of DB.asg) { const i = k.indexOf('|'), x = X(k.slice(0, i)); if (!x || !pids.has(x.proj)) continue; (ag[`projects/${x.proj}/asg/${x.id}`] ||= []).push(k.slice(i + 1)); }
@@ -341,6 +342,9 @@ function builderHTML(p, n) {
    <label class="sm" for="edNotes"><b>Notes for the whole protocol</b> (optional, e.g. "all steps at room temperature")</label><textarea id="edNotes" rows="2">${e(E.pnotes || '')}</textarea>
    <label class="sm" for="edEthics"><b>Ethics approval number</b> (optional, for animal or human work)</label><input type="text" id="edEthics" value="${e(E.ethics || '')}" placeholder="e.g. AREC2024-05-008D">
    <div class="line" style="flex-wrap:wrap"><b class="sm">Repeated on a schedule</b><input type="number" id="edSchedN" value="${e(E.schedN || '')}" min="0" style="width:72px" aria-label="Number of times"><span class="sm">times, every</span><input type="number" id="edSchedD" value="${e(E.schedD || '')}" min="0" style="width:72px" aria-label="Days between repeats"><span class="sm">days</span><span class="sm muted">(leave empty for a protocol that is done once per sample)</span></div>
+   <div class="stack" id="edFields"><b class="sm">Results to type in for each sample</b><span class="sm muted">For a protocol that gives numbers, such as RNA extraction: name each value and its unit. They are asked for at the bench.</span>
+    ${(E.fields || []).map((f, j) => `<div class="line pfield"><input type="text" data-f="fn" class="grow" value="${e(f.n || '')}" placeholder="Name, e.g. A260/280 or Yield" aria-label="Result name"><input type="text" data-f="fu" value="${e(f.u || '')}" placeholder="Unit, e.g. ng/µL" style="width:130px" aria-label="Unit"><button class="btn sm" data-a="fldDel" data-j="${j}">Remove</button></div>`).join('')}
+    <div class="line"><button class="btn sm" data-a="fldAdd">Add a result to record</button></div></div>
    <datalist id="tempList">${TEMPS.map(t => `<option value="${e(t)}">`).join('')}</datalist>
    <datalist id="rgNames">${DB.reagents.map(r => `<option value="${e(r.name)}">`).join('')}</datalist>
    ${preHTML(p)}
@@ -441,13 +445,14 @@ function walk(p, parent, out = []) { for (const n of kids(p, parent)) { out.push
 
 /* ---------------- runs ---------------- */
 const key = (x, t, m) => x + '|' + (t || '') + '|' + m;
+const fHas = (f, k) => f.key === k || (f.keys || []).includes(k);
 function buildIdx() { IDX = new Map(); for (const s of DB.sessions) for (const m of s.mice) IDX.set(key(s.exp, s.target, m), s); }
 const runOf = (x, t, m) => IDX.get(key(x, t, m));
 const stOf = (x, t, m) => { const s = runOf(x, t, m); return s ? (s.doneAt ? 'done' : 'run') : DB.asg.has(key(x, t, m)) ? 'todo' : 'na'; };
 const sess = id => DB.sessions.find(s => s.id === id);
 function newSession(projId, exp, target, mice, nodeId, revN, by) {
   const x = X(exp), p = P(x.proto), n = p.nodes.find(q => q.id === nodeId), r = n.revs.find(q => q.n === revN) || cur(n);
-  const s = { id: nid(), proj: projId, exp, target: target || '', mice, proto: p.id, node: n.id, pname: p.name, label: vname(p, n), rev: r.n, steps: r.steps.map(q => { const z = { ...q, reagent: q.reagent === '@target' ? (x.treag && x.treag[target]) || '' : q.reagent, checks: [...q.checks], more: (q.more || []).map(y => ({ ...y })), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).map(y => ({ ...y })) }, outs: [...(q.outs || [])] }; z.t = lbl(z); return z; }), ticks: {}, stepIdx: 0, waitStart: null, notes: [], startedAt: now(), doneAt: null, by };
+  const s = { id: nid(), proj: projId, exp, target: target || '', mice, proto: p.id, node: n.id, pname: p.name, label: vname(p, n), rev: r.n, steps: r.steps.map(q => { const z = { ...q, reagent: q.reagent === '@target' ? (x.treag && x.treag[target]) || '' : q.reagent, checks: [...q.checks], more: (q.more || []).map(y => ({ ...y })), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).map(y => ({ ...y })) }, outs: [...(q.outs || [])] }; z.t = lbl(z); return z; }), ticks: {}, res: {}, stepIdx: 0, waitStart: null, notes: [], startedAt: now(), doneAt: null, by };
   DB.sessions.push(s); return s;
 }
 
@@ -532,7 +537,7 @@ const weekTargetMice = (x, t) => DB.targets.filter(q => q.user === S.user && q.w
 /* ---------------- views ---------------- */
 function runRow(x, t, m, title, pk) {
   const s = runOf(x.id, t, m), k = !s ? 'idle' : s.doneAt ? 'ok' : 'wait';
-  const nf = DB.files.filter(f => f.key === key(x.id, t, m)).length, nn = s ? s.notes.filter(n => n.mice === 'all' || n.mice.includes(m)).length : 0;
+  const nf = DB.files.filter(f => fHas(f, key(x.id, t, m))).length, nn = s ? s.notes.filter(n => n.mice === 'all' || n.mice.includes(m)).length : 0;
   const txt = !s ? 'To do' : s.doneAt ? `Done ${dt(s.doneAt)} · ${e(s.pname)} ${e(s.label)} rev ${s.rev}` : `On the bench · step ${s.stepIdx + 1} of ${s.steps.length}`;
   return `<div class="item"><span class="pk">${pk || ''}</span><span class="ic ${k}">${k === 'ok' ? '✓' : k === 'wait' ? '◔' : '○'}</span><span class="what">${title}</span><span class="state ${k}">${txt}${nn ? ` · ${nn} deviation${nn > 1 ? 's' : ''} noted` : ''}${nf ? ` · ${nf} result file${nf > 1 ? 's' : ''}` : ''}</span><span class="act"><button class="btn sm" data-a="run" data-x="${x.id}" data-t="${e(t || '')}" data-m="${e(m)}">Open record</button></span></div>`;
 }
@@ -565,6 +570,99 @@ V.today = () => {
   </div></div>`;
 };
 /* repeats that have come due: a round is due for a sample once the round before it was done long enough ago */
+/* ---------------- animal monitoring: weights, tumour size, treatments, doses ---------------- */
+const dayT = d => new Date(d + 'T12:00').getTime(), dayAdd = (d, n) => dayKey(dayT(d) + n * DAY);
+const obsDays = () => DB.obs.filter(o => o.proj === S.project).sort((a, b) => a.id < b.id ? -1 : 1);
+const obDoc = (day, mk) => { let o = DB.obs.find(q => q.proj === S.project && q.id === day); if (!o && mk) DB.obs.push(o = { id: day, proj: S.project }); return o; };
+const obOf = (day, a) => (obDoc(day) || {})[a];
+const tvol = o => o && o.v && o.v.length === 3 && o.v.every(x => x > 0) ? o.v[0] * o.v[1] * o.v[2] / 2 : null;      // length x width x height / 2
+/* the most recent visit, on or before a day, where this animal has a weight ('w') or a full tumour measurement ('v') */
+function lastOb(a, f, day) { const L = obsDays(); for (let i = L.length - 1; i >= 0; i--) { if (day && L[i].id > day) continue; const o = L[i][a]; if (o && (f === 'w' ? o.w > 0 : tvol(o) != null)) return { day: L[i].id, o }; } return null; }
+const txCount = a => obsDays().filter(o => o[a] && o[a].tx === true).length;
+const r2 = n => Math.round(n * 100) / 100;
+function weekChange(a, day) { const now_ = obOf(day, a), prev = lastOb(a, 'w', dayAdd(day, -5)); if (!now_ || !(now_.w > 0) || !prev) return null; return { pct: (now_.w - prev.o.w) / prev.o.w * 100, from: prev }; }
+/* what to draw up for this animal, from its group's drugs and its weight */
+function doseLines(a, group, day) {
+  const M = proj().mon, ags = ((M.groups || {})[group] || []).map(n => (M.agents || []).find(q => q.name === n)).filter(Boolean); if (!ags.length) return { lines: ['None'] };
+  const today = obOf(day, a), w = today && today.w > 0 ? { day, o: today } : lastOb(a, 'w', day); if (!w) return { lines: ['No weight recorded yet'] };
+  const g = w.o.w, lines = [], pool = ags.filter(q => !(q.fixed > 0));
+  ags.filter(q => q.fixed > 0).forEach(q => lines.push(`${r2(q.per * g)} ${q.unit} ${q.name} in ${q.fixed} µL ${q.dil || 'diluent'}`));
+  if (pool.length) { const sum = pool.reduce((s, q) => s + q.per * g, 0), tot = M.total || 0; lines.push(pool.map(q => `${r2(q.per * g)} ${q.unit} ${q.name}`).join(' + ') + (tot ? ` + ${r2(tot - sum)} µL ${pool[0].dil || 'diluent'} (to ${tot} µL)` : '')); }
+  return { lines, w };
+}
+function obCells(a, day) {
+  const o = obOf(day, a) || {}, v = tvol(o), ch = weekChange(a, day), al = proj().mon.alert || 15, prev = lastOb(a, 'w', dayAdd(day, -1)), odd = o.w > 0 && prev && (o.w > prev.o.w * 1.6 || o.w < prev.o.w * 0.6);
+  return { vol: v != null ? String(Math.round(v * 10) / 10) : (o.vn ? e(o.vn) : ''), pct: ch ? `<span class="${Math.abs(ch.pct) > al ? 'err' : ''}">${ch.pct > 0 ? '+' : ''}${ch.pct.toFixed(1)}%</span>` : '', odd, prev };
+}
+function obChange(el) {
+  const a = el.dataset.an, f = el.dataset.f, day = S.monDay || dayKey(now()), doc = obDoc(day, true), o = doc[a] = doc[a] || {}, t = el.value.trim(), n = +t.replace(',', '.');
+  if (f === 'w') { delete o.w; delete o.wn; if (t) { if (isFinite(n) && n > 0) o.w = n; else o.wn = t; } }
+  else if (f === 'c') { if (t) o.c = t; else delete o.c; }
+  else if (f === 'tx') { if (t === 'y') o.tx = true; else if (t === 'n') o.tx = false; else delete o.tx; }
+  else { const i = +f.slice(1); o.v = o.v || [0, 0, 0]; if (i === 0) delete o.vn; if (t && !(isFinite(n) && n >= 0)) { if (i === 0) o.vn = t; o.v[i] = 0; } else o.v[i] = t ? n : 0; if (!o.v.some(x => x > 0)) delete o.v; }
+  if (!Object.keys(o).length) delete doc[a];
+  commit();
+  const tr = el.closest('tr'), c = obCells(a, day); if (tr) { tr.querySelector('.ob-vol').innerHTML = c.vol; tr.querySelector('.ob-pct').innerHTML = c.pct; const wi = tr.querySelector('[data-f=w]'); wi.classList.toggle('odd', !!c.odd); wi.title = c.odd ? `Check this: the last weight was ${c.prev.o.w} g` : ''; }
+}
+function csvRows(text) { const rows = []; let row = [], cur = '', q = false; for (let i = 0; i < text.length; i++) { const ch = text[i]; if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; } else if (ch === '"') q = true; else if (ch === ',') { row.push(cur); cur = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); cur = ''; rows.push(row); row = []; } else cur += ch; } if (cur || row.length) { row.push(cur); rows.push(row); } return rows; }
+function monImport(text, snap) {
+  const rows = csvRows(text), hi = rows.findIndex(r => r.some(c => /mouse|animal/i.test(c)) && r.some(c => /weight/i.test(c))); if (hi < 0) throw new Error('it has no "Mouse ID" and "Weight" columns');
+  const H = rows[hi].map(c => c.toLowerCase()), ci = re => H.findIndex(c => re.test(c)), C = { ts: ci(/timestamp/), d: H.findIndex(c => c.trim() === 'date'), m: ci(/mouse|animal/), w: ci(/weight/), v1: ci(/v1/), v2: ci(/v2/), v3: ci(/v3/), tx: ci(/treated/), end: ci(/terminat/), c: ci(/comment/) };
+  const byNo = new Map(animals().map(a => [parseInt(a.id.replace(/\D/g, ''), 10), a.id])), pd = s => { s = String(s || '').trim(); let m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/.exec(s); if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m ? `${m[1]}-${m[2]}-${m[3]}` : ''; };
+  const num = s => { const n = +String(s || '').trim().replace(',', '.'); return String(s || '').trim() && isFinite(n) ? n : null; }, txt = s => String(s || '').trim();
+  let done = 0, skip = 0; const days = new Set(), seen = new Set();
+  for (const r of rows.slice(hi + 1)) {
+    const a = byNo.get(parseInt(txt(r[C.m]).replace(/\D/g, ''), 10)); let day = pd(C.d >= 0 && txt(r[C.d]) ? r[C.d] : r[C.ts]); if (!txt(r[C.m])) continue; if (!a || !day) { skip++; continue; }
+    if (snap) { const wd = new Date(day + 'T12:00').getDay(); if (wd === 2) day = dayAdd(day, -1); else if (wd === 4) day = dayAdd(day, 1); }
+    const doc = obDoc(day, true), o = doc[a] = doc[a] || {}, w = txt(r[C.w]), v = [r[C.v1], r[C.v2], r[C.v3]].map(num), tx = txt(r[C.tx]).toLowerCase(), cm = txt(r[C.c]);
+    if (w) { if (num(w) > 0) o.w = num(w); else o.wn = w; } if (v.some(x => x > 0)) o.v = v.map(x => x || 0); else if (txt(r[C.v1]) && num(r[C.v1]) == null) o.vn = txt(r[C.v1]);
+    if (tx === 'yes') o.tx = true; else if (tx === 'no' && o.tx !== true) o.tx = false; if (cm) o.c = o.c && o.c !== cm ? o.c + '; ' + cm : cm;
+    if (C.end >= 0 && txt(r[C.end]).toLowerCase() === 'yes') { const rec = anMk(a); if (!rec.end || rec.end < day) rec.end = day; }
+    if (!Object.keys(o).length) delete doc[a]; done++; days.add(day); seen.add(a);
+  }
+  return `Imported ${done} rows for ${seen.size} animals over ${days.size} visit days${skip ? `; ${skip} rows skipped because the animal or the date could not be matched` : ''}.`;
+}
+V.monitor = () => {
+  if (!proj()) return noProj(); const p = proj(), M = p.mon;
+  if (!M || !M.on) return `<div class="card"><h2>Animal monitoring</h2><div class="hint">For studies with live animals: weights, tumour measurements, treatments and dose sheets for each visit. It is off for this study.</div><div class="line"><button class="btn pri" data-a="monOn">Switch on for ${e(p.name)}</button></div></div>`;
+  const view = S.monView || 'entry', today = dayKey(now()), day = S.monDay || today, A = animals(), alive = a => { const r = anRec(a.id); return !(r && r.end && r.end < day); };
+  const nav = `<div class="line"><div class="chips grow">${[['entry', 'Record a visit'], ['weeks', 'Weekly weights'], ['doses', 'Dose sheet'], ['status', 'Status'], ['setup', 'Setup and import']].map(([k, l]) => `<button class="chip ${view === k ? 'view' : ''}" data-a="monView" data-k="${k}">${l}</button>`).join('')}</div>${view === 'entry' || view === 'doses' ? `<button class="btn sm" data-a="monStep" data-n="-1" aria-label="Previous visit day">←</button><label class="fld" for="monDay">Day<input type="date" id="monDay" data-c="monDay" value="${day}" max="${today}"></label><button class="btn sm" data-a="monStep" data-n="1" aria-label="Next visit day" ${day >= today ? 'disabled' : ''}>→</button>` : ''}</div>`;
+  let body = '';
+  if (view === 'entry') {
+    const row = a => { const o = obOf(day, a.id) || {}, c = obCells(a.id, day), rec = anRec(a.id), dead = !alive(a), pw = lastOb(a.id, 'w', dayAdd(day, -1)), inp = (f, v, w, ph) => `<input type="text" inputmode="decimal" data-c="ob" data-an="${e(a.id)}" data-f="${f}" value="${e(v ?? '')}" style="width:${w}px" ${ph ? `placeholder="${ph}"` : ''} aria-label="${f} for ${e(a.id)}" ${dead ? 'disabled' : ''}>`;
+      return `<tr class="${dead ? 'gone' : ''}"><td class="mono">${e(a.id)}</td><td class="g">${gtag(a.group)}</td><td class="g">${pw ? pw.o.w + ' g <span class="muted">' + dt(dayT(pw.day)) + '</span>' : ''}</td>
+       <td>${inp('w', o.w ?? o.wn, 70)}</td><td>${inp('v0', o.v ? o.v[0] || '' : o.vn, 60)}</td><td>${inp('v1', o.v ? o.v[1] || '' : '', 60)}</td><td>${inp('v2', o.v ? o.v[2] || '' : '', 60)}</td><td class="ob-vol">${c.vol}</td><td class="ob-pct">${c.pct}</td>
+       <td><select data-c="ob" data-an="${e(a.id)}" data-f="tx" aria-label="Treated, ${e(a.id)}" ${dead ? 'disabled' : ''}><option value=""></option><option value="y" ${o.tx === true ? 'selected' : ''}>Yes</option><option value="n" ${o.tx === false ? 'selected' : ''}>No</option></select> <span class="muted sm">${txCount(a.id)}/${M.tx || 0}</span></td>
+       <td style="text-align:left"><input type="text" data-c="ob" data-an="${e(a.id)}" data-f="c" value="${e(o.c || '')}" style="width:220px" aria-label="Comment for ${e(a.id)}" ${dead ? 'disabled' : ''}></td>
+       <td>${rec && rec.end ? `<span class="sm muted">Ended ${dt(dayT(rec.end))}</span> <button class="lnk sm" data-a="anUnend" data-an="${e(a.id)}">undo</button>` : `<button class="btn sm" data-a="anEnd" data-an="${e(a.id)}">End</button>`}</td></tr>`; };
+    body = `<div class="hint">Type what you measured for ${dty(dayT(day))}. Each box saves as you leave it. If an animal cannot be weighed or the tumour is too small to measure, type the reason in the box instead of a number.</div>
+     <div class="scroll" style="max-height:72vh;overflow:auto"><table class="mx mon"><thead><tr><th>Animal</th><th>Group</th><th>Last weight</th><th>Weight (g)</th><th>Length</th><th>Width</th><th>Height (mm)</th><th>Volume (mm³)</th><th>In a week</th><th>Treated</th><th>Comment</th><th></th></tr></thead>
+     <tbody>${A.filter(alive).map(row).join('')}${A.filter(a => !alive(a)).map(row).join('')}</tbody></table></div>`;
+  } else if (view === 'weeks') {
+    const L = obsDays(); if (!L.length) body = '<div class="hint">No visits recorded yet.</div>'; else {
+      const w0 = wkStart(dayT(L[0].id)), w1 = wkStart(dayT(L[L.length - 1].id)), weeks = []; for (let w = w0; w <= w1 + DAY; w += 7 * DAY) weeks.push(wkStart(w + DAY / 2));
+      const wOf = (a, w) => { let v = null; for (const o of L) { const t = dayT(o.id); if (t >= w && t < w + 7 * DAY && o[a] && o[a].w > 0) v = o[a].w; } return v; }, al = M.alert || 15;
+      body = `<div class="hint">The last weight recorded in each week, and the change from the last week that has a weight. Changes of more than ${al}% are red.</div><div class="scroll" style="max-height:72vh;overflow:auto"><table class="mx"><thead><tr><th>Animal</th><th>Group</th>${weeks.map(w => `<th>${dt(w)}</th>`).join('')}</tr></thead><tbody>${A.map(a => { let prev = null; return `<tr><td class="mono">${e(a.id)}</td><td class="g">${gtag(a.group)}</td>${weeks.map(w => { const v = wOf(a.id, w); if (v == null) return '<td class="g"></td>'; const pc = prev ? (v - prev) / prev * 100 : null; prev = v; return `<td>${v}${pc != null ? ` <span class="sm ${Math.abs(pc) > al ? 'err' : 'muted'}">${pc > 0 ? '+' : ''}${pc.toFixed(1)}%</span>` : ''}</td>`; }).join('')}</tr>`; }).join('')}</tbody></table></div>`; }
+  } else if (view === 'doses') {
+    body = (M.agents || []).length ? `<div class="hint">What to draw up on ${dty(dayT(day))}, from each animal's group and weight. If it was not weighed that day, the last weight is used and the date is shown.</div><div class="scroll" style="max-height:72vh;overflow:auto"><table class="mx"><thead><tr><th>Animal</th><th>Group</th><th>Weight used</th><th>Treatments</th><th style="text-align:left">Draw up</th></tr></thead><tbody>${A.filter(alive).map(a => { const d = doseLines(a.id, a.group, day); return `<tr><td class="mono">${e(a.id)}</td><td class="g">${gtag(a.group)}</td><td>${d.w ? d.w.o.w + ' g' + (d.w.day !== day ? ' <span class="sm muted">from ' + dt(dayT(d.w.day)) + '</span>' : '') : ''}</td><td>${txCount(a.id)}/${M.tx || 0}</td><td style="text-align:left;white-space:normal">${d.lines.map(e).join('<br>')}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="hint">No drugs are set up yet. Add them under Setup and import, and tick which group gets which.</div>';
+  } else if (view === 'status') {
+    body = `<div class="scroll"><table class="mx"><thead><tr><th>Animal</th><th>Group</th><th>Status</th><th>Treatments</th><th>First treatment</th><th>Last weight</th><th>Last tumour volume</th></tr></thead><tbody>${A.map(a => { const r = anRec(a.id), n = txCount(a.id), ft = obsDays().find(o => o[a.id] && o[a.id].tx === true), lw = lastOb(a.id, 'w'), lv = lastOb(a.id, 'v'); return `<tr><td><button class="lnk mono" data-a="goAnimal" data-an="${e(a.id)}">${e(a.id)}</button></td><td class="g">${gtag(a.group)}</td><td>${r && r.end ? 'Ended ' + dt(dayT(r.end)) + (r.why ? ' · ' + e(r.why) : '') : 'Alive'}</td><td>${n} of ${M.tx || 0}${M.tx ? ' · ' + Math.max(0, M.tx - n) + ' left' : ''}</td><td>${ft ? dt(dayT(ft.id)) : ''}</td><td>${lw ? lw.o.w + ' g · ' + dt(dayT(lw.day)) : ''}</td><td>${lv ? Math.round(tvol(lv.o)) + ' mm³ · ' + dt(dayT(lv.day)) : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  } else {
+    const G = pGroups(), ag = M.agents || [];
+    body = `<div class="cols even"><div class="stack"><h3>Rules for this study</h3>
+      <div class="rg"><label>Treatments planned per animal<input type="number" data-c="monCfg" data-f="tx" value="${M.tx || ''}" min="0"></label><label>Flag a weekly weight change above (%)<input type="number" data-c="monCfg" data-f="alert" value="${M.alert || ''}" min="0"></label><label>Make each mixed injection up to (µL)<input type="number" data-c="monCfg" data-f="total" value="${M.total || ''}" min="0"></label></div>
+      <h3>Drugs and how much per gram of body weight</h3>
+      ${ag.map((q, i) => `<div class="line agrow"><input type="text" data-c="monAg" data-i="${i}" data-f="name" value="${e(q.name)}" placeholder="Drug" style="flex:1 1 130px" aria-label="Drug name"><input type="number" data-c="monAg" data-i="${i}" data-f="per" value="${q.per || ''}" step="any" min="0" style="width:76px" aria-label="Amount per gram"><select data-c="monAg" data-i="${i}" data-f="unit" aria-label="Unit"><option ${q.unit === 'µL' ? 'selected' : ''}>µL</option><option ${q.unit === 'mg' ? 'selected' : ''}>mg</option></select><span class="sm muted">per g, in</span><input type="text" data-c="monAg" data-i="${i}" data-f="dil" value="${e(q.dil || '')}" placeholder="Diluent" style="width:96px" aria-label="Diluent"><input type="number" data-c="monAg" data-i="${i}" data-f="fixed" value="${q.fixed || ''}" min="0" style="width:76px" title="Fill in only if this drug is its own injection in a fixed volume of diluent, in µL. Leave empty to mix it into the made-up injection." aria-label="Fixed diluent volume in µL"><button class="btn sm" data-a="monAgDel" data-i="${i}">Remove</button></div>`).join('')}
+      <div class="line"><button class="btn sm" data-a="monAgAdd">Add a drug</button><span class="sm muted">The last number is only for a drug given as its own injection in a fixed volume of diluent (µL).</span></div>
+      ${ag.length && G.length ? `<h3>Which group gets which drug</h3><div class="scroll"><table class="mx"><thead><tr><th>Group</th>${ag.map(q => `<th>${e(q.name)}</th>`).join('')}</tr></thead><tbody>${G.map(g => `<tr><td>${gtag(g)}</td>${ag.map(q => `<td><input type="checkbox" data-c="monGrp" data-g="${e(g)}" data-n="${e(q.name)}" ${((M.groups || {})[g] || []).includes(q.name) ? 'checked' : ''} aria-label="${e(g + ' gets ' + q.name)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''}</div>
+     <div class="stack"><h3>Bring in an existing sheet</h3><div class="hint">Export the sheet's raw data tab as CSV (File, Download, Comma-separated values) and choose it here. It needs columns for the mouse or animal number, weight, the three tumour measurements, treated, terminated and comments, plus a date or timestamp. Animals are matched by number: 7 in the sheet is ${e((A.find(a => parseInt(a.id.replace(/\\D/g, ''), 10) === 7) || A[0] || { id: 'M07' }).id)} here.</div>
+      <label class="ck sm"><input type="checkbox" id="monSnap" checked> Move Tuesday visits to Monday and Thursday visits to Friday</label>
+      <div class="line"><label class="btn" style="cursor:pointer">Choose the CSV file<input type="file" id="monFile" accept=".csv,text/csv" hidden></label></div>
+      <div class="hint">Importing again does not double anything up: a row for the same animal and day is merged.</div>
+      <h3>Switch off</h3><div class="line"><button class="btn sm" data-a="monOff">Switch monitoring off for this study</button></div></div></div>`;
+  }
+  return `<div class="stack"><div class="card">${nav}${body}</div></div>`;
+};
 const xProg = (p, x) => { let d = 0, r = 0, n = 0; for (const m of p.samples) { const c = expCount(x, m.id); d += c.d; r += c.r; n += c.n; } return { name: x.name, d, r, n }; };
 const pct = (d, n) => n ? Math.round(d / n * 100) : 0;
 const pbar = q => `<div class="pg"><b class="sm">${e(q.name)}</b><span class="sm muted">${q.d} of ${q.n} done${q.r ? ' · ' + q.r + ' on the bench' : ''} · ${pct(q.d, q.n)}%</span><div class="bar two"><i style="width:${q.n ? q.d / q.n * 100 : 0}%"></i><u style="width:${q.n ? q.r / q.n * 100 : 0}%"></u></div></div>`;
@@ -573,7 +671,7 @@ V.timeline = () => {
   const p = proj(), xs = projExps().map(x => xProg(p, x)), all = xs.reduce((a, q) => ({ d: a.d + q.d, r: a.r + q.r, n: a.n + q.n }), { d: 0, r: 0, n: 0 });
   const ts = DB.targets.filter(t => t.proj === p.id && t.status !== 'change'), people = [...new Set([S.user, ...p.members.filter(u => !sups().includes(u)), ...ts.map(t => t.user)])];
   const weeks = Array.from({ length: 10 }, (_, i) => WK + (i - 3) * 7 * DAY), ST = { met: 'ok', open: 'info', proposed: '', missed: 'bad', explained: 'warn' };
-  const cell = (u, w) => ts.filter(t => t.user === u && t.week === w).map(t => { const s = tState(t); return `<span class="flag ${ST[s] || ''}" title="${e(tName(t))} · ${e(TS[s][1])}">${tDone(t)}/${tN(t)}</span>`; }).join(' ');
+  const cell = (u, w) => ts.filter(t => t.user === u && t.week === w).map(t => { const s = tState(t); return `<span class="flag ${ST[s] || ''}" title="${e(tName(t))} · ${e(TS[s][1])}">${tDone(t)}/${tN(t)}${s === 'proposed' ? ' · waiting' : ''}</span>`; }).join(' ');
   const act = DB.sessions.filter(s => s.proj === p.id && !s.doneAt && X(s.exp)), recent = DB.sessions.filter(s => s.proj === p.id && s.doneAt && s.doneAt > now() - 7 * DAY).sort((a, b) => b.doneAt - a.doneAt).slice(0, 12);
   const wk = ts.filter(t => t.week === WK).sort((a, b) => (b.user === S.user) - (a.user === S.user));
   return `<div class="cols"><div class="stack">
@@ -640,6 +738,15 @@ function fitList(F, skip) {
   }
   return out.sort((a, b) => b.m - a.m).slice(0, 7);
 }
+/* A protocol can name values to type in for each sample (for example A260/280 and yield). They are kept on the bench session. */
+const pFields = pid => ((P(pid) || {}).fields || []).filter(f => f.n);
+const resOf = (s, m, f) => ((s.res || {})[m] || {})[f];
+function resTable(s, only) {
+  const fs = pFields(s.proto); if (!fs.length) return '';
+  return `<div class="stack"><h3>Results to record</h3><div class="scroll"><table class="mx res"><thead><tr><th>Sample</th>${fs.map(f => `<th>${e(f.n)}${f.u ? ' <span class="muted">(' + e(f.u) + ')</span>' : ''}</th>`).join('')}</tr></thead>
+   <tbody>${s.mice.filter(m => !only || m === only).map(m => `<tr><td class="mono">${e(m)}</td>${fs.map(f => `<td><input type="text" inputmode="decimal" data-c="res" data-id="${s.id}" data-m="${e(m)}" data-f="${e(f.n)}" value="${e(resOf(s, m, f.n) ?? '')}" aria-label="${e(f.n + ' for ' + m)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="hint">Saved as you leave each box.</div></div>`;
+}
+function resChange(el) { const s = sess(el.dataset.id); if (!s) return; s.res = s.res || {}; const r = s.res[el.dataset.m] = s.res[el.dataset.m] || {}, v = el.value.trim(); if (v === '') delete r[el.dataset.f]; else r[el.dataset.f] = isNaN(+v) ? v : +v; if (!Object.keys(r).length) delete s.res[el.dataset.m]; commit(); }
 function sessPanel(s) {
   return `<div class="card"><div class="line"><h2 class="grow">${e(X(s.exp).name)} ${e(s.target)}</h2><span class="flag info mono">${e(s.pname)} ${e(s.label)} rev ${s.rev}</span></div>
   <div class="sm muted">${s.mice.length} samples: ${e(s.mice.join(', '))} · started by ${e(users[s.by].name)}.${P(s.proto)?.ethics ? ' Ethics approval: ' + e(P(s.proto).ethics) + '.' : ''} These steps are a copy taken when the session started, so later protocol edits do not change this record.</div>
@@ -650,7 +757,7 @@ function sessPanel(s) {
     if (c === 'cur') { if (stp.w && s.waitStart) b = `<span class="clock" data-until="${s.waitStart + stp.m * MIN}"></span><button class="btn sm pri" data-a="stepDone" data-id="${s.id}">Wait finished</button>`;
       else b = (stp.w ? `<button class="btn sm pri" data-a="startWait" data-id="${s.id}">Start timer</button>` : '') + `<button class="btn sm ${stp.w ? '' : 'pri'}" data-a="stepDone" data-id="${s.id}">Done</button>`; }
     return `<li class="${c}"><span class="n">${c === 'done' ? '✓' : i + 1}</span><div class="tx"><b>${e(stp.t)}</b><div class="sm muted">${e(timeTxt(stp))} · ${stp.w ? 'hands-free' : 'hands-on'}${need && rg ? ` · ${e(amt(stp))} · ${fmtV(need, stp.unit)} for this batch${stock(rg).low ? ' · <span class="err">' + e(rg.name) + ' is running low</span>' : ''}` : ''}</div>${info(stp, need && rg).map(t => `<div class="sm muted">${e(t)}</div>`).join('')}${stp.checks.filter(Boolean).map((ck, j) => `<label class="line sm"><input type="checkbox" data-c="tick" data-id="${s.id}" data-k="${i}|${j}" ${s.ticks[i + '|' + j] ? 'checked' : ''}> ${e(ck)}</label>`).join('')}${stp.note ? `<div class="sm muted">Comment: ${e(stp.note)}</div>` : ''}${notes}</div><div class="rt">${b}${c ? `<button class="btn sm" data-a="note" data-id="${s.id}" data-step="${i}">Note a deviation</button>` : ''}</div></li>`;
-  }).join('')}</ol></div>`;
+  }).join('')}</ol>${resTable(s)}</div>`;
 }
 
 V.overview = () => {
@@ -675,8 +782,35 @@ function mouseRows() {
     return `<button class="row ${S.selMouse === m.id ? 'sel' : ''}" data-a="selMouse" data-m="${e(m.id)}"><span class="nm mono">${e(m.id)}</span><span class="meta">${e(m.group)}</span>${run ? flag('warn', 'On the bench') : (n ? flag(d === n ? 'ok' : '', d + ' of ' + n) : flag('', 'Held'))}</button>`;
   }).join(''); }).join('') || `<div class="hint" style="padding:12px">${proj().samples.length ? 'No sample matches.' : 'No samples yet. Add them under Study plan.'}</div>`;
 }
+const anId = sid => String(sid).split(' ')[0];
+function animals() { const m = new Map(); for (const s of proj().samples) { const a = anId(s.id); if (!m.has(a)) m.set(a, { id: a, group: s.group, samples: [] }); m.get(a).samples.push(s); } return [...m.values()]; }
+const anRec = a => DB.animals.find(q => q.proj === S.project && q.id === a);
+const anMk = a => { let r = anRec(a); if (!r) DB.animals.push(r = { id: a, proj: S.project, files: [] }); return r; };
+const byAnimal = () => !S.mAll && animals().length < proj().samples.length;
+const mToggle = () => animals().length < proj().samples.length ? `<div class="chips"><button class="chip ${byAnimal() ? 'view' : ''}" data-a="mBy" data-k="">By animal or donor</button><button class="chip ${byAnimal() ? '' : 'view'}" data-a="mBy" data-k="1">Every sample</button></div>` : '';
+/* shown wherever a file can be attached: uploads go to the study's Google Drive folder once that is switched on */
+const upBtn = id => DB.lab && DB.lab.uploadUrl && proj() && proj().drive ? `<label class="btn sm" style="cursor:pointer">Upload a file<input type="file" id="${id}" hidden></label>` : '';
+function animalView() {
+  const xs = projExps(), L = animals().filter(a => (a.id + ' ' + a.group).toLowerCase().includes((S.q || '').toLowerCase())), a = animals().find(q => q.id === S.selAnimal);
+  const cnt = an => { let d = 0, n = 0, r = 0; an.samples.forEach(m => xs.forEach(x => { const c = expCount(x, m.id); d += c.d; n += c.n; r += c.r; })); return { d, n, r }; };
+  const list = L.map(an => { const c = cnt(an), rec = anRec(an.id); return `<button class="row ${S.selAnimal === an.id ? 'sel' : ''}" data-a="selAnimal" data-an="${e(an.id)}"><span class="nm mono">${e(an.id)}</span><span class="meta">${e(an.group || 'No group')} · ${an.samples.length} sample${an.samples.length === 1 ? '' : 's'}</span>${rec && rec.end ? flag('', 'Ended') : c.r ? flag('warn', 'On the bench') : c.n ? flag(c.d === c.n ? 'ok' : '', c.d + ' of ' + c.n) : flag('', 'Stored')}</button>`; }).join('') || '<div class="hint" style="padding:12px">Nothing matches.</div>';
+  let det = '<div class="empty">Choose an animal or donor on the left to see its profile: photos, the samples taken from it, and how far each experiment is.</div>';
+  if (a) {
+    const c = cnt(a), rec = anRec(a.id) || { files: [] }, mon = proj().mon && proj().mon.on, lw = mon && lastOb(a.id, 'w'), lv = mon && lastOb(a.id, 'v');
+    det = `<div class="hdr"><button class="back" data-a="back">← All animals</button><div class="name"><span class="mono">${e(a.id)}</span>${gtag(a.group)}${rec.end ? flag('', 'Ended ' + dty(new Date(rec.end + 'T12:00').getTime())) : ''}</div>
+      <div class="who">${e(proj().name)} · ${a.samples.length} sample${a.samples.length === 1 ? '' : 's'} · ${c.d} of ${c.n} runs done${rec.end && rec.why ? ' · ' + e(rec.why) : ''}</div>
+      ${mon ? `<div class="who">${lw ? 'Last weight ' + lw.o.w + ' g on ' + dty(dayT(lw.day)) : 'No weight recorded'}${lv ? ' · last tumour volume ' + Math.round(tvol(lv.o)) + ' mm³ on ' + dty(dayT(lv.day)) : ''} · ${txCount(a.id)} of ${proj().mon.tx || 0} treatments · <button class="lnk" data-a="tab" data-k="monitor">Open Monitoring</button></div>` : ''}</div>
+     <div class="body">
+      <div class="card"><h2>Photos and files</h2>${rec.files.map((f, j) => `<div class="line sm"><span class="grow">${safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`} <span class="muted">· ${dt(f.at)} · ${e(nameOf(f.by))}</span></span><button class="btn sm" data-a="anFileDel" data-j="${j}">Remove</button></div>`).join('') || '<div class="hint">No photos or files yet.</div>'}
+       <div class="rg"><label>Name<input type="text" id="afName" placeholder="e.g. tumour at harvest"></label><label>Link to the file<input type="url" id="afUrl" placeholder="https://drive.google.com/…"></label></div>
+       <div class="line"><button class="btn sm" data-a="anFileAdd">Add link</button>${upBtn('afUp')}<span class="err" id="afErr"></span></div></div>
+      <div class="card"><h2>Samples from ${e(a.id)}</h2>${xs.length ? `<div class="scroll"><table class="mx"><thead><tr><th>Sample</th>${xs.map(x => `<th>${e(x.name)}</th>`).join('')}</tr></thead><tbody>${a.samples.map(m => `<tr><td><button class="lnk mono" data-a="goMouse" data-m="${e(m.id)}">${e(sType(m.id) || m.id)}</button></td>${xs.map(x => { const k = expCount(x, m.id); if (!k.n) return '<td class="g" style="text-align:center">–</td>'; return x.targets ? `<td class="${k.d === k.n ? 'done' : k.d || k.r ? 'part' : ''}">${k.d}/${k.n}</td>` : `<td class="${k.d ? 'done' : k.r ? 'run' : ''}">${k.d ? '✓' : k.r ? '◔' : 'to do'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div><div class="hint">Click a sample for its full record. A dash means that experiment is not planned on that sample.</div>` : a.samples.map(m => `<div class="sm mono">${e(m.id)}</div>`).join('')}</div></div>`;
+  }
+  return `<div class="split ${a ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools">${mToggle()}<input type="search" id="q" placeholder="Search animal or group" aria-label="Search animals" value="${e(S.q)}" data-c="qAn"></div><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
+}
 V.mice = () => {
   if (!proj()) return noProj();
+  if (byAnimal()) return animalView();
   const m = proj().samples.find(q => q.id === S.selMouse), xs = projExps(); let det = '<div class="empty">Choose a sample on the left to see every experiment for it.</div>';
   if (m) {
     let d = 0, n = 0; const cs = xs.map(x => { const c = expCount(x, m.id); d += c.d; n += c.n; return c; });
@@ -684,7 +818,7 @@ V.mice = () => {
      <div class="chips">${xs.map((x, i) => !cs[i].n ? '' : `<button class="chip ${cs[i].d === cs[i].n ? 'done' : cs[i].d || cs[i].r ? 'part' : ''} ${S.mx === x.id ? 'view' : ''}" data-a="mx" data-x="${x.id}">${e(x.name)}${x.targets ? ' ' + cs[i].d + '/' + cs[i].n : ''}</button>`).join('')}</div></div>
     <div class="body">${n ? '' : '<div class="hint">Nothing is planned on this sample. It is recorded as held, for example in storage.</div>'}${xs.map((x, i) => { const c = cs[i]; if (!c.n) return ''; return `<details class="stage" ${S.mx === x.id || c.r || (!x.targets && !S.mx) ? 'open' : ''}><summary>${e(x.name)} ${c.d === c.n ? flag('ok', 'done') : c.r ? flag('warn', 'on the bench') : ''}<span class="cnt">${c.d} of ${c.n}</span></summary>${(x.targets || ['']).filter(t => stOf(x.id, t, m.id) !== 'na').map(t => runRow(x, t, m.id, e(t || x.name))).join('')}</details>`; }).join('')}</div>`;
   }
-  return `<div class="split ${m ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools"><input type="search" id="q" placeholder="Search sample or group" aria-label="Search samples" value="${e(S.q)}" data-i="q"></div><div class="rows" id="rows">${mouseRows()}</div></aside><main class="pane-detail">${det}</main></div>`;
+  return `<div class="split ${m ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools">${mToggle()}<input type="search" id="q" placeholder="Search sample or group" aria-label="Search samples" value="${e(S.q)}" data-i="q"></div><div class="rows" id="rows">${mouseRows()}</div></aside><main class="pane-detail">${det}</main></div>`;
 };
 
 V.exps = () => {
@@ -778,7 +912,7 @@ V.targets = () => {
     <div class="card"><h2>Next 6 months</h2><div class="hint">Estimated bench hours per planned week. Click a week to plan it.</div>
      <div class="wks">${Array.from({ length: 27 }, (_, i) => WK + i * 7 * DAY).map(w => { const l = weekLoad(S.user, w); return `<button class="wk ${l.total ? 'has' : ''} ${l.over ? 'ov' : ''} ${w === D.week ? 'sel' : ''}" data-a="dWkSet" data-w="${w}"><b>${dt(w)}</b>${l.total ? dur(l.total) : 'free'}</button>`; }).join('')}</div></div>`;
   }
-  return `<div class="cols"><div class="stack">${progHTML()}${up.map(card).join('') || '<div class="card hint">Nothing planned from this week on.</div>'}${past.length ? '<h3>Earlier weeks</h3>' + past.map(card).join('') : ''}</div><div class="stack">${right}</div></div>`;
+  return `<div class="cols"><div class="stack">${progHTML()}${up.map(card).join('') || '<div class="card hint">Nothing planned from this week on.</div>'}${past.length ? '<h3>Earlier weeks</h3>' + past.map(card).join('') : ''}${(() => { if (sup || !proj()) return ''; const o = DB.targets.filter(t => t.proj === S.project && t.user !== S.user && t.status !== 'change' && t.week >= WK - 7 * DAY).sort((a, b) => a.week - b.week); return o.length ? '<h3>Teammates in this study</h3><div class="hint">You can see these, including ones still waiting for Prof Kaur, but only their owner can change them.</div>' + o.map(t => tCard(t)).join('') : ''; })()}</div><div class="stack">${right}</div></div>`;
 };
 
 function mailCard() {
@@ -829,13 +963,14 @@ const pTypes = () => proj().types || [];
 const sType = id => id.includes(' ') ? id.slice(id.indexOf(' ') + 1) : '';
 const planTypes = () => [...new Set(proj().samples.map(m => sType(m.id)).filter(Boolean))];
 const planRows = () => proj().samples.filter(m => (!S.planType || sType(m.id) === S.planType) && (!S.planGroup || m.group === S.planGroup) && (!S.planQ || low(m.id).includes(low(S.planQ))));
-const gtag = g => { if (!g || !proj()) return ''; const gs = pGroups(), i = Math.max(0, gs.indexOf(g)); return `<span class="gtag" style="--g:${Math.round(8 + i * (40 / Math.max(1, gs.length - 1)))}%">${e(g)}</span>`; };
+const gtag = g => { if (!g || !proj()) return ''; const gs = pGroups(), i = Math.max(0, gs.indexOf(g)); const t = gs.length > 1 ? i / (gs.length - 1) : 0.4, deep = t > 0.55;   // pale to full colour, then darker; neighbours also lean slightly warmer or cooler
+  return `<span class="gtag ${t > 0.38 ? 'dk' : ''}" style="--g:${Math.round(deep ? 100 : 14 + t / 0.55 * 86)}%;--k:${Math.round(deep ? (t - 0.55) / 0.45 * 42 : 0)}%;--h:${i % 2 ? 16 : -16}">${e(g)}</span>`; };
 const pGroups = () => [...new Set(proj().samples.map(m => m.group).concat(proj().xg || []).filter(Boolean))];
 V.plan = () => {
   if (!proj()) return noProj();
   const p = proj(), xs = projExps(), cols = planCols(), inUse = new Set(xs.map(x => x.proto)), nm = nextMouse(), selT = pTypes().filter(t => S.addT.has(t));
   const types = planTypes(), groups = pGroups(); if (!types.includes(S.planType)) S.planType = ''; if (!groups.includes(S.planGroup)) S.planGroup = ''; const rows = planRows();
-  return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><span class="sm muted">Study colour</span><span class="swatches" role="group" aria-label="Study colour">${PALS.map(([k, l]) => `<button class="sw ${palOf(p) === k ? 'on' : ''}" data-pal="${k}" data-a="setPal" data-k="${k}" title="${l}" aria-label="${l}" aria-pressed="${palOf(p) === k}"></button>`).join('')}</span></div>
+  return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><span class="sm muted">Study colour</span>${p.mon && p.mon.on ? '' : '<button class="btn sm" data-a="monOn">Switch on animal monitoring</button>'}<span class="swatches" role="group" aria-label="Study colour">${PALS.map(([k, l]) => `<button class="sw ${palOf(p) === k ? 'on' : ''}" data-pal="${k}" data-a="setPal" data-k="${k}" title="${l}" aria-label="${l}" aria-pressed="${palOf(p) === k}"></button>`).join('')}</span></div>
    <div class="hint">Set a study up in three steps: list the samples you hold, choose the experiments from the lab protocols, then tick which sample gets which experiment. Overview, Samples, Experiments and Targets all follow what is ticked here.</div></div>
   <div class="cols">
    <div class="card"><h2>1. Samples <span class="muted sm">${p.samples.length} held</span></h2>
@@ -914,7 +1049,7 @@ V.duties = () => {
 function modalHTML() {
   const m = S.modal; if (!m) return ''; let h = '';
   if (m.type === 'run') {
-    const x = X(m.x), s = runOf(m.x, m.t, m.m), fs = DB.files.filter(f => f.key === key(m.x, m.t, m.m));
+    const x = X(m.x), s = runOf(m.x, m.t, m.m), fs = DB.files.filter(f => fHas(f, key(m.x, m.t, m.m)));
     const p = s && P(s.proto), n = p && p.nodes.find(q => q.id === s.node), stale = n && (cur(n).n !== s.rev || !isLeaf(p, n) || vname(p, n) !== s.label);
     h = `<h2><span class="mono">${e(m.m)}</span> · ${e(x.name)} ${e(m.t)}</h2>${preLine(x, m.m)}
      ${!s ? '<div class="hint">Not started. Start it from Experiments, where you can tick several samples and run them as one bench session.</div>'
@@ -923,10 +1058,12 @@ function modalHTML() {
        <ol class="steps">${s.steps.map((stp, i) => `<li class="${i < s.stepIdx ? 'done' : ''}"><span class="n">${i < s.stepIdx ? '✓' : i + 1}</span><div class="tx"><b>${e(stp.t)}</b>${s.notes.filter(q => q.step === i && (q.mice === 'all' || q.mice.includes(m.m))).map(q => `<div class="dev">${q.mice === 'all' ? 'Whole batch' : 'This sample'}: ${e(q.text)} <span class="muted">(${dt(q.at)}, ${e(users[q.by].name)})</span></div>`).join('')}</div><div class="rt sm muted">${dur(stp.m)}</div></li>`).join('')}</ol>
        ${s.notes.filter(q => q.step == null && q.mice.includes(m.m)).map(q => `<div class="dev">Note: ${e(q.text)} <span class="muted">(${dt(q.at)}, ${e(users[q.by].name)})</span></div>`).join('')}
        <div class="line"><input type="text" id="runNote" class="grow" placeholder="Note for this sample only, e.g. thawed for 6 min instead" aria-label="Note for this sample"><button class="btn sm" data-a="runNote">Add note</button></div>`}
+     ${s ? resTable(s, m.m) : ''}
      <h3>Results</h3>
-     ${fs.map(f => `<div class="line sm"><span class="grow">${safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`} <span class="muted">· ${dt(f.at)} · ${e(users[f.by].name)}</span></span><button class="btn sm" data-a="fileDel" data-id="${f.id}">Remove</button></div>`).join('') || '<div class="hint">No result files yet.</div>'}
+     ${fs.map(f => `<div class="line sm"><span class="grow">${safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`} <span class="muted">· ${dt(f.at)} · ${e(users[f.by].name)}${(f.keys || []).length > 1 ? ' · shared by ' + f.keys.length + ' samples' : ''}</span></span><button class="btn sm" data-a="fileDel" data-id="${f.id}">Remove</button></div>`).join('') || '<div class="hint">No result files yet.</div>'}
      <div class="rg"><label>File name<input type="text" id="fName" placeholder="e.g. image at 20x"></label><label>Link to the file<input type="url" id="fUrl" placeholder="https://drive.google.com/…"></label></div>
-     <div class="line"><button class="btn sm" data-a="fileAdd">Add result file</button><span class="err" id="mErr"></span></div>
+     ${s && s.mice.length > 1 ? `<details class="sm"><summary>This file shows more than one sample (for example a gel)</summary><div class="pick" style="padding-top:6px"><label><input type="checkbox" id="fAll" data-c="fAll"> All ${s.mice.length} in this session</label>${s.mice.filter(q => q !== m.m).map(q => `<label><input type="checkbox" class="fAlso" value="${e(q)}"> <span class="mono">${e(q)}</span></label>`).join('')}</div></details>` : ''}
+     <div class="line"><button class="btn sm" data-a="fileAdd">Add result file</button>${upBtn('fUp')}<span class="err" id="mErr"></span></div>
      <div class="hint">The file itself stays where it is, for example in Google Drive; the tracker keeps its name and link. Whoever opens the link still needs access to the file there.</div>
      <div class="foot"><button class="btn" data-a="close">Close</button></div>`;
   }
@@ -960,6 +1097,8 @@ function modalHTML() {
      <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn" data-a="start" data-force="1">Start anyway</button></div>`;
   }
   if (m.type === 'imp') h = importHTML(m);
+  if (m.type === 'anEnd') h = `<h2>End of ${e(m.an)}</h2><div class="rg"><label>Date<input type="date" id="aeDay" value="${S.monDay || dayKey(now())}" max="${dayKey(now())}"></label><label>Reason<select id="aeWhy"><option>End of study</option><option>Humane endpoint</option><option>Found dead</option><option>Other</option></select></label></div><label>Note (optional)<input type="text" id="aeNote" placeholder="e.g. tumour over the size limit"></label>
+     <div class="hint">The animal moves to the bottom of the visit list and is left out of dose sheets after this date. Its samples and records are not affected.</div><div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="anEndSave">Mark as ended</button></div>`;
   if (m.type === 'sure') h = `<h2>Are you sure?</h2><div class="todo"><span><b>${e(m.q[0])}</b>${m.q[1] ? '<br>' + e(m.q[1]) : ''}</span></div>
      <div class="foot"><button class="btn" data-a="sureNo">Cancel</button><button class="btn pri" data-a="sureYes">${e(m.q[2])}</button></div>`;
   if (m.type === 'delProto') {
@@ -1029,7 +1168,7 @@ function gateView() {
 }
 
 /* ---------------- render ---------------- */
-const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['plan', 'Study plan']];
+const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['monitor', 'Monitoring'], ['plan', 'Study plan']];
 const LAB_TABS = [['protos', 'Protocols'], ['reag', 'Reagents'], ['duties', 'Lab duties'], ['others', 'Other projects'], ['lab', 'Lab and access']];
 const TABS = [...STUDY_TABS, ...LAB_TABS];
 /* a study can pick a colour; everything inside that study's space is drawn in it, for everyone */
@@ -1056,7 +1195,7 @@ function render() {
     ${realAdmin() ? `<button class="btn sm" data-a="viewAs" title="Switch between what an admin sees and what an ordinary member sees">${S.asMember ? 'Back to admin view' : 'See as a member'}</button>` : ''}
     <button class="btn" data-a="inbox">Inbox ${nn ? flag('info', nn) : ''}</button><button class="btn" data-a="signout">Sign out</button></header>
    <nav class="nav2" aria-label="Sections">
-    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.map(tabBtn).join('')}</div></div>
+    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.filter(t => t[0] !== 'monitor' || (proj() && proj().mon && proj().mon.on)).map(tabBtn).join('')}</div></div>
     <div class="navg lab ${inStudy ? '' : 'here'}"><div class="navh"><span class="navt">Whole lab</span><span class="sm muted">shared by everyone in ${e(labName)}</span></div><div class="tabs">${LAB_TABS.map(tabBtn).join('')}</div></div>
    </nav>
    ${inStudy ? (proj() ? `<div class="scope study" data-pal="${pal}"><b>${e(proj().name)}</b><span>You are inside this study. What you add or change on this page belongs to ${e(proj().name)} only.</span></div>` : '')
@@ -1086,7 +1225,7 @@ function syncEdit() {
     if (o.type === 'wash') { q.reps = Math.max(1, +g('reps').value || 1); q.each = +g('each').value || 0; q.m = q.reps * q.each; q.w = false; } else { q.m = +g('m').value || 0; q.w = g('w').checked; }
     if (o.type === 'other') q.kind = g('kind').value; return q;
   });
-  S.edit.note = val('edNote'); S.edit.name = val('edName'); S.edit.pnotes = val('edNotes'); S.edit.ethics = val('edEthics'); S.edit.schedN = val('edSchedN'); S.edit.schedD = val('edSchedD');
+  S.edit.note = val('edNote'); S.edit.name = val('edName'); S.edit.pnotes = val('edNotes'); S.edit.ethics = val('edEthics'); S.edit.schedN = val('edSchedN'); S.edit.schedD = val('edSchedD'); S.edit.fields = [...document.querySelectorAll('#edFields .pfield')].map(r => ({ n: r.querySelector('[data-f=fn]').value.trim(), u: r.querySelector('[data-f=fu]').value.trim() }));
 }
 const mErr = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; };
 const A = {
@@ -1125,7 +1264,7 @@ const A = {
   delProj: d => {
     const p = PR(d.id); if (!p || prompt(`This deletes the project and every record in it. Type the project name to confirm: ${p.name}`) !== p.name) return false;
     DB.projects = DB.projects.filter(q => q.id !== p.id);
-    for (const k of ['exps', 'sessions', 'targets', 'files']) DB[k] = DB[k].filter(q => q.proj !== p.id);
+    for (const k of ['exps', 'sessions', 'targets', 'files', 'obs', 'animals']) DB[k] = DB[k].filter(q => q.proj !== p.id);
     B.commit([{ op: 'delete', path: 'progress/' + p.id }]).catch(() => {}); buildIdx(); toast('Project deleted.');
   },
   tab: d => { syncEdit(); S.tab = d.k; },
@@ -1136,8 +1275,11 @@ const A = {
   // A notice still waiting to be emailed is only hidden; the mail sheet removes it once it has gone out.
   inboxClear: () => { DB.notices = DB.notices.filter(n => { if (n.to !== S.user) return true; if (n.mailedAt === null && now() - n.at < 7 * DAY) { n.cleared = now(); return true; } return false; }); },
   mailTest: () => { if (!canLab()) return false; DB.notices.push({ id: nid(), to: S.user, at: now(), text: 'This is a test from Lab Bench Tracker. If it reached your email inbox, email notices are working.', by: S.user, mailedAt: null, test: true }); toast('Test queued. It should reach your email within a minute or two.'); },
-  goExp: d => { S.tab = 'exps'; S.selExp = d.x; S.picked.clear(); }, goMouse: d => { S.tab = 'mice'; S.selMouse = d.m; S.mx = null; },
+  goExp: d => { S.tab = 'exps'; S.selExp = d.x; S.picked.clear(); }, goMouse: d => { S.tab = 'mice'; S.mAll = true; S.selMouse = d.m; S.mx = null; },
   goProto: d => { S.tab = 'protos'; S.selProto = d.p; S.selNode = S.variant || null; S.viewRev = null; },
+  selAnimal: d => { S.selAnimal = d.an; }, mBy: d => { S.mAll = !!d.k; S.q = ''; },
+  anFileAdd: () => { const name = val('afName'), url = val('afUrl'); if (!name) { $('#afErr').textContent = 'Give it a name.'; return false; } if (url && !safeUrl(url)) { $('#afErr').textContent = 'The link must start with https://'; return false; } anMk(S.selAnimal).files.push({ name, url, at: now(), by: S.user }); },
+  anFileDel: d => { anMk(S.selAnimal).files.splice(+d.j, 1); },
   selMouse: d => { S.selMouse = d.m; S.mx = null; }, mx: d => { S.mx = S.mx === d.x ? null : d.x; },
   back: () => { if (S.tab === 'mice') S.selMouse = null; if (S.tab === 'exps') S.selExp = null; if (S.tab === 'protos') { S.selProto = null; S.edit = null; } },
   selExp: d => { S.selExp = d.x; S.picked.clear(); S.variant = null; }, selT: d => { S.selTarget = d.t; S.picked.clear(); },
@@ -1168,7 +1310,8 @@ const A = {
   fileAdd: () => {
     const m = S.modal, name = val('fName'), url = val('fUrl');
     if (!name) return mErr('Give the file a name.'); if (url && !safeUrl(url)) return mErr('The link must start with https://');
-    DB.files.push({ id: nid(), proj: X(m.x).proj, key: key(m.x, m.t, m.m), name, url, at: now(), by: S.user });
+    const also = [...document.querySelectorAll('.fAlso:checked')].map(c => c.value), f = { id: nid(), proj: X(m.x).proj, key: key(m.x, m.t, m.m), name, url, at: now(), by: S.user };
+    if (also.length) f.keys = [m.m, ...also].map(q => key(m.x, m.t, q)); DB.files.push(f);
   },
   fileDel: d => { DB.files = DB.files.filter(f => f.id !== d.id); },
   openSess: d => S.openSession = d.id,
@@ -1189,9 +1332,10 @@ const A = {
   blDel: d => { DB.backlog = DB.backlog.filter(b => b.id !== d.id); },
   selProto: d => { S.selProto = d.p; S.selNode = null; S.viewRev = null; S.edit = null; S.modal = null; }, selNode: d => { S.selNode = d.n; S.viewRev = null; S.edit = null; },
   rev: d => { S.viewRev = d.n ? +d.n : null; },
-  edStart: () => { const n = P(S.selProto).nodes.find(q => q.id === S.selNode); const p = P(S.selProto); S.edit = { steps: cur(n).steps.map(q => ({ ...blank(q.type, q.kind), ...q, checks: [...q.checks], more: (q.more || []).map(x => ({ ...x })), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).map(x => ({ ...x })) }, outs: [...(q.outs || [])] })), note: '', name: p.name, pnotes: p.notes || '', ethics: p.ethics || '', schedN: (p.sched && p.sched.n) || '', schedD: (p.sched && p.sched.days) || '' }; },
+  edStart: () => { const n = P(S.selProto).nodes.find(q => q.id === S.selNode); const p = P(S.selProto); S.edit = { steps: cur(n).steps.map(q => ({ ...blank(q.type, q.kind), ...q, checks: [...q.checks], more: (q.more || []).map(x => ({ ...x })), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).map(x => ({ ...x })) }, outs: [...(q.outs || [])] })), note: '', name: p.name, pnotes: p.notes || '', ethics: p.ethics || '', schedN: (p.sched && p.sched.n) || '', schedD: (p.sched && p.sched.days) || '', fields: (p.fields || []).map(f => ({ ...f })) }; },
   edAdd: d => { syncEdit(); S.edit.steps.push(blank(d.t)); }, edDel: d => { syncEdit(); S.edit.steps.splice(+d.i, 1); }, edCancel: () => S.edit = null,
   edUp: d => { syncEdit(); const a = S.edit.steps, i = +d.i; if (i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]]; }, edDown: d => { syncEdit(); const a = S.edit.steps, i = +d.i; if (i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]]; },
+  fldAdd: () => { syncEdit(); S.edit.fields = [...(S.edit.fields || []), { n: '', u: '' }]; }, fldDel: d => { syncEdit(); S.edit.fields.splice(+d.j, 1); },
   moreAdd: d => { syncEdit(); const q = S.edit.steps[+d.i]; q.more = [...(q.more || []), { reagent: '@name', rname: '', vol: 0, unit: 'µL', conc: '' }]; },
   moreDel: d => { syncEdit(); S.edit.steps[+d.i].more.splice(+d.j, 1); },
   stageAdd: d => { syncEdit(); const q = S.edit.steps[+d.i]; q.prog = { n: (q.prog && q.prog.n) || 0, stages: [...((q.prog && q.prog.stages) || []), { temp: '', time: '' }] }; },
@@ -1203,10 +1347,11 @@ const A = {
     syncEdit(); const p = P(S.selProto), n = p.nodes.find(q => q.id === S.selNode), first = !cur(n).steps.length, steps = S.edit.steps.map(q => ({ ...q, checks: q.checks.filter(Boolean), more: (q.more || []).filter(x => x.rname), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).filter(x => x.temp || x.time) }, outs: (q.outs || []).filter(Boolean) }));
     const nm = (S.edit.name || '').trim(), renamed = nm !== p.name, norm = a => canon(a.map(q => ({ ...blank(q.type, q.kind), ...q, rname: q.reagent === '@name' ? q.rname || '' : '' }))), same = norm(steps) === norm(cur(n).steps);
     const pn = (S.edit.pnotes || '').trim(), et = (S.edit.ethics || '').trim(), notesCh = pn !== (p.notes || ''), ethCh = et !== (p.ethics || '');
-    const sn = Math.min(60, Math.max(0, Math.round(+S.edit.schedN || 0))), sd = Math.max(0, Math.round(+S.edit.schedD || 0)), sc = sn > 1 ? { n: sn, days: sd } : null, schCh = canon(sc) !== canon(p.sched || null);
-    const nameOnly = (renamed || notesCh || ethCh || schCh) && same && !S.edit.note;      // name, notes or ethics number only: no new revision is needed for that
+    const sn = Math.min(60, Math.max(0, Math.round(+S.edit.schedN || 0))), sd = Math.max(0, Math.round(+S.edit.schedD || 0)), sc = sn > 1 ? { n: sn, days: sd } : null, schCh = canon(sc) !== canon(p.sched || null), fl = (S.edit.fields || []).filter(f => f.n), fldCh = canon(fl) !== canon(p.fields || []);
+    const nameOnly = (renamed || notesCh || ethCh || schCh || fldCh) && same && !S.edit.note;      // name, notes or ethics number only: no new revision is needed for that
     if (!nm) { $('#edErr').textContent = 'Give the protocol a name.'; return false; }
     if (notesCh) { if (pn) p.notes = pn; else delete p.notes; plog(p, 'Protocol notes changed'); }
+    if (fldCh) { if (fl.length) p.fields = fl; else delete p.fields; plog(p, fl.length ? 'Results to record: ' + fl.map(f => f.n).join(', ') : 'Results to record removed'); }
     if (schCh) { if (sc) p.sched = sc; else delete p.sched; plog(p, sc ? 'Schedule set: ' + schedTxt(sc).toLowerCase() : 'Schedule removed'); }
     if (ethCh) { if (et) p.ethics = et; else delete p.ethics; plog(p, et ? 'Ethics approval number set to ' + et : 'Ethics approval number removed'); }
     const noName = steps.find(q => q.reagent === '@name' && !q.rname);
@@ -1243,6 +1388,15 @@ const A = {
     DB.exps.push(x); proj().exps.push(x.id); toast(x.name + (x.sched ? ` added with ${x.targets.length} rounds. Tick its samples in the grid below.` : ' added. Tick its samples in the grid below.')); },
   visShow: () => { S.visOn = true; }, visHide: () => { S.visOn = false; S.visDay = ''; visitStop(); },
   sureNo: () => { S.modal = (S.modal && S.modal.back) || null; },
+  monOn: () => { const p = proj(); p.mon = { tx: 6, alert: 15, total: 200, agents: [], groups: {}, ...(p.mon || {}), on: true }; S.tab = 'monitor'; S.monView = 'setup'; toast('Monitoring is on for ' + p.name + '. Set the rules, then record a visit or import your sheet.'); },
+  monOff: () => { proj().mon.on = false; S.tab = 'plan'; },
+  monView: d => { S.monView = d.k; }, goAnimal: d => { S.tab = 'mice'; S.mAll = false; S.selAnimal = d.an; },
+  monStep: d => { const L = obsDays().map(o => o.id), day = S.monDay || dayKey(now()), nx = +d.n < 0 ? L.filter(x => x < day).pop() : L.find(x => x > day); S.monDay = nx || (+d.n > 0 ? dayKey(now()) : day); },
+  monAgAdd: () => { const M = proj().mon; M.agents = [...(M.agents || []), { name: '', per: 0, unit: 'µL', dil: 'Saline', fixed: 0 }]; },
+  monAgDel: d => { const M = proj().mon, q = M.agents[+d.i]; M.agents.splice(+d.i, 1); for (const g in M.groups || {}) M.groups[g] = M.groups[g].filter(n => n !== q.name); },
+  anEnd: d => { S.modal = { type: 'anEnd', an: d.an }; },
+  anEndSave: () => { const m = S.modal, day = val('aeDay'), why = [val('aeWhy'), val('aeNote')].filter(Boolean).join(': '); if (!day) return mErr('Choose the date.'); const r = anMk(m.an); r.end = day; r.why = why; S.modal = null; toast(m.an + ' marked as ended.'); },
+  anUnend: d => { const r = anRec(d.an); if (r) { delete r.end; delete r.why; } },
   planClear: () => { S.planType = ''; S.planGroup = ''; S.planQ = ''; },
   asgCol: d => { const c = planCols()[+d.i], ks = planRows().map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   asgRow: d => { const ks = planCols().map(c => key(c.x.id, c.t, d.m)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
@@ -1353,6 +1507,10 @@ const SURE = {
   rmMember: d => [`Remove ${nameOf(d.em)} from the lab?`, 'They lose access to the tracker. Their past records stay.', 'Remove from lab'],
   smDel: d => [`Remove the sample ${d.m}?`, 'It is taken out of the study and unticked from every experiment in the plan.', 'Remove sample'],
   xDel: d => [`Remove the experiment ${X(d.x)?.name || ''} from this study?`, 'Its ticks in the plan are removed too. The protocol itself stays in the lab library.', 'Remove experiment'],
+  anFileDel: d => ['Remove this photo or file link?', (((anRec(S.selAnimal) || {}).files || [])[+d.j] || {}).name || '', 'Remove link'],
+  monAgDel: d => ['Remove this drug from the dose rules?', ((proj().mon.agents || [])[+d.i] || {}).name || '', 'Remove drug'],
+  monOff: () => ['Switch animal monitoring off for this study?', 'The tab is hidden. Everything recorded is kept and comes back if you switch it on again.', 'Switch off'],
+  anUnend: d => [`Mark ${d.an} as not ended?`, 'Its end date and reason are cleared.', 'Clear the end'],
   edDel: d => [`Remove step ${+d.i + 1}?`, 'Everything typed in this step is lost.', 'Remove step'],
 };
 document.addEventListener('click', ev => {
@@ -1365,6 +1523,14 @@ document.addEventListener('click', ev => {
 });
 document.addEventListener('change', ev => {
   const el = ev.target, c = el.dataset.c; if (!c) return;
+  if (c === 'ob') { obChange(el); return; }          // typed measurements save without redrawing, so Tab keeps moving along the row
+  if (c === 'res') { resChange(el); return; }
+  if (c === 'fAll') { document.querySelectorAll('.fAlso').forEach(b => { b.checked = el.checked; }); return; }
+  if (c === 'qAn') S.q = el.value;
+  if (c === 'monDay') S.monDay = el.value || dayKey(now());
+  if (c === 'monCfg') proj().mon[el.dataset.f] = Math.max(0, +el.value || 0);
+  if (c === 'monAg') { const M = proj().mon, q = M.agents[+el.dataset.i], f = el.dataset.f, old = q.name; q[f] = f === 'per' || f === 'fixed' ? Math.max(0, +el.value || 0) : el.value.trim(); if (f === 'name' && old !== q.name) for (const g in M.groups || {}) M.groups[g] = M.groups[g].map(n => n === old ? q.name : n); }
+  if (c === 'monGrp') { const M = proj().mon; M.groups = M.groups || {}; const a = (M.groups[el.dataset.g] || []).filter(n => n !== el.dataset.n); if (el.checked) a.push(el.dataset.n); M.groups[el.dataset.g] = a; }
   if (c === 'proj') A.pickProj({ id: el.value });
   if (c === 'dWk') { S.draft.week = +el.value; S.draft.override = false; }
   if (c === 'dExp') { S.draft.exp = el.value; S.draft.pick.clear(); }
@@ -1393,6 +1559,11 @@ document.addEventListener('change', ev => {
 });
 document.addEventListener('change', ev => {
   const el = ev.target;
+  if (el.id === 'monFile') {
+    const f = el.files && el.files[0]; if (!f) return; const snap = $('#monSnap') ? $('#monSnap').checked : true;
+    f.text().then(t => { const msg = monImport(t, snap); commit(); S.monView = 'status'; render(); toast(msg); }).catch(err => { rebuild(); toast('That file could not be used: ' + (err.message || 'it could not be read') + '.'); });
+    return;
+  }
   if (el.id === 'impFile') {
     const f = el.files && el.files[0]; if (!f) return;
     if (f.size > 2e6) { toast('That file is too large to be a protocol file.'); return; }

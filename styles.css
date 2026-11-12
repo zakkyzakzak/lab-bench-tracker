@@ -267,8 +267,13 @@ a.lnk{font-weight:600}
 .sw{width:22px;height:22px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line);background:var(--accent);cursor:pointer;padding:0;transition:transform 140ms var(--ease-out),box-shadow 150ms ease}
 .sw.on{box-shadow:0 0 0 2px var(--fg)}
 /* treatment groups: lighter to deeper shades of the study colour */
-.gtag{display:inline-block;font-size:12px;font-weight:500;padding:1px 8px;border-radius:999px;white-space:nowrap;color:var(--fg);background:color-mix(in srgb,var(--accent) var(--g,10%),var(--surface));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line))}
+.gtag{--ga:var(--accent);display:inline-block;font-size:12px;font-weight:600;padding:1px 9px;border-radius:999px;white-space:nowrap;color:var(--fg);background:color-mix(in srgb,color-mix(in srgb,var(--ga) var(--g,14%),var(--surface)),#000 var(--k,0%));border:1px solid color-mix(in srgb,var(--ga) 45%,var(--line))}
+@supports (color:oklch(from red l c h)){.gtag{--ga:oklch(from var(--accent) l c calc(h + var(--h,0)))}}
+.gtag.dk{color:var(--on-accent)}
 .pcard{border-top:3px solid var(--accent)}
+.mx.mon td,.mx.res td{padding:3px 5px} .mx.mon input,.mx.res input{padding:4px 6px} .mx.res input{width:110px}
+.mx.mon tr.gone td{opacity:.55} .mx.mon input.odd{border-color:var(--bad);background:var(--bad-soft)}
+.agrow input,.agrow select{min-width:0}
 .mx.tl th.now,.mx.tl td.now{background:var(--accent-soft)} .mx.tl td:first-child{font-weight:600}
 
 @media (prefers-reduced-motion:reduce){.btn,.tab,.chip,button.mc,.sw,.dlg,#toast{transition:opacity 150ms ease,color 150ms ease,border-color 150ms ease,background-color 150ms ease} .btn:active:not(:disabled),.tab:active,.chip:active,button.mc:active,.wk:active,.sw:active{transform:none} @starting-style{.dlg{transform:none}}}
