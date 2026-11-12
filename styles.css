@@ -200,6 +200,8 @@ input[type=email],input[type=url]{background:var(--surface);border:1px solid var
 .gate .card label{display:grid;gap:4px;font-size:14px;font-weight:500}
 .gate .card input{width:100%}
 .cols.even{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.cols.lab{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
+@media (max-width:1000px){.cols.lab{grid-template-columns:1fr}}
 .plist{border:1px solid var(--line);border-radius:4px;overflow:hidden}
 .prow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 12px;border-top:1px solid var(--line)}
 .prow:first-child{border-top:0}

@@ -564,7 +564,8 @@ function mailCard() {
 V.lab = () => {
   const L = DB.lab, cl = canLab(), people = allPeople();
   const pRow = em => `<div class="prow"><span class="nm">${e(nameOf(em))}</span><span class="sm muted mono">${e(em)}</span>${flag(roleOf(em) === 'Supervisor' ? 'info' : roleOf(em) === 'Admin' ? 'ok' : '', roleOf(em))}
-    ${cl && em !== S.user && !sups().includes(em) && !admins().includes(em) ? `<button class="btn sm" data-a="rmMember" data-em="${e(em)}">Remove</button>` : ''}</div>`;
+    ${cl && em !== S.user && !sups().includes(em) && !admins().includes(em) ? `<button class="btn sm" data-a="rmMember" data-em="${e(em)}">Remove</button>` : ''}
+    ${cl && em !== S.user ? `<button class="btn sm" data-a="linkFor" data-em="${e(em)}" title="Emails ${e(nameOf(em))} a fresh sign-in link, for people who cannot use Sign in with Google">Email sign-in link</button>` : ''}</div>`;
   const projCard = p => {
     const canEdit = isSup() || p.members.includes(S.user), rest = people.filter(em => !sups().includes(em) && !p.members.includes(em));
     return `<div class="card"><div class="line"><b class="grow">${e(p.name)}</b>${p.id === S.project ? flag('info', 'Selected') : `<button class="btn sm" data-a="pickProj" data-id="${p.id}">Open</button>`}</div>
@@ -572,7 +573,7 @@ V.lab = () => {
     <div class="line">${p.members.map(em => `<span class="flag info">${e(nameOf(em))}${canEdit && (p.members.length > 1 || isSup()) ? ` <button class="lnk" style="color:inherit" data-a="rmMem" data-p="${p.id}" data-u="${e(em)}" aria-label="Remove ${e(nameOf(em))} from ${e(p.name)}">×</button>` : ''}</span>`).join('')}<span class="flag">Prof Kaur (supervises all)</span></div>
     ${canEdit ? `<div class="line"><select id="add${p.id}" aria-label="Person to add to ${e(p.name)}">${rest.map(em => `<option value="${e(em)}">${e(nameOf(em))}</option>`).join('') || '<option value="">Everyone is already in</option>'}</select><button class="btn sm" data-a="addMem" data-p="${p.id}">Add to project</button>${isSup() ? `<span class="sp"></span><button class="btn sm" data-a="delProj" data-id="${p.id}">Delete project</button>` : ''}</div>` : ''}</div>`;
   };
-  return `<div class="cols even"><div class="stack">
+  return `<div class="cols lab"><div class="stack">
     <div class="card"><h2>${e(L.name || 'The lab')}</h2>
       <div class="hint">Supervisors see every project. Admins manage who is in the lab. Members see only their own projects.</div>
       <div class="plist">${people.map(pRow).join('')}</div>
@@ -834,6 +835,13 @@ const A = {
     return false;
   },
   linkAgain: () => { S.linkSent = null; },
+  linkFor: (d, el) => {
+    if (!canLab() || !WITS.test(d.em)) return false;
+    el.disabled = true;
+    B.commit([{ op: 'set', path: 'signinRequests/' + nid(), data: { email: low(d.em), site: location.origin + location.pathname, at: now() } }])
+      .then(() => toast(`A sign-in link will be emailed to ${nameOf(d.em)} within about two minutes.`), err => { el.disabled = false; toast(errMsg(err)); });
+    return false;
+  },
   signout: () => { leave(); stopAll(); B.signOutAll().then(() => location.reload()); return false; },
   setupLab: () => {
     const sup = low($('#supEmail').value), name = $('#labName').value.trim() || 'Kaur lab';

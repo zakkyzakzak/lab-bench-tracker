@@ -107,7 +107,7 @@ function links_() {
       if (!link) throw new Error('Google answered ' + res.getResponseCode() + ': ' + body.slice(0, 200));
       MailApp.sendEmail({
         to: email, name: 'Lab Bench Tracker', subject: 'Lab Bench Tracker: your sign-in link',
-        body: 'Here is your sign-in link for the Lab Bench Tracker:\n\n' + link + '\n\nOpen it in the same browser where you asked for it. It works once and stops working after a few hours.\n\nIf you did not ask for this, ignore this email: nobody can sign in without it.\n\nThis message was sent automatically by the Kaur lab tracker.',
+        body: 'Here is your sign-in link for the Lab Bench Tracker:\n\n' + link + '\n\nOpen it in the browser you want to use the tracker in. If it asks for your email address, type ' + email + '. The link works once and stops working after a few hours.\n\nIf you were not expecting this, ignore this email: nobody can sign in without it.\n\nThis message was sent automatically by the Kaur lab tracker.',
       });
       props.setProperty(key, String(Date.now()));
       log('sent', '');                                   // the link itself is never written to the sheet
