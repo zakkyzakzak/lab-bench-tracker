@@ -804,7 +804,7 @@ function render() {
     <span id="online" class="online" role="group" aria-label="Online now">${onlineHTML()}</span>
     <span class="sm">${e(S.fb.displayName || S.user)}</span>${flag(isSup() ? 'info' : isAdmin() ? 'ok' : '', roleOf(S.user))}
     <button class="btn" data-a="inbox">Inbox ${nn ? flag('info', nn) : ''}</button><button class="btn" data-a="signout">Sign out</button></header>
-   <nav class="tabs" aria-label="Sections">${TABS.map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-a="tab" data-k="${k}">${l}${k === 'reag' && lowList().length ? ' ' + flag('bad', lowList().length + ' low') : ''}</button>`).join('')}</nav>
+   <nav class="tabs" aria-label="Sections">${TABS.map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-a="tab" data-k="${k}">${l}${k === 'reag' && lowList().length ? ' ' + flag('bad', lowList().length + ' low') : ''}${k === 'protos' && S.edit ? ' ' + flag('warn', 'unsaved') : ''}</button>`).join('')}</nav>
    ${lock ? `<section class="lock"><h2>Last week's target was missed</h2><div>${e(tName(lock))}, week of ${wkLabel(lock.week)}: <b>${tDone(lock)} of ${tN(lock)}</b> done. Before you carry on, tell Prof Kaur what happened. She is notified as soon as you send it.</div>
      <div class="g3"><label for="exWhat">What happened<textarea id="exWhat" rows="3"></textarea></label><label for="exWhy">Why that meant the target was missed<textarea id="exWhy" rows="3"></textarea></label><label for="exPlan">Plan to catch up<textarea id="exPlan" rows="3"></textarea></label></div>
      <div class="line"><button class="btn pri" data-a="excuse" data-id="${lock.id}">Send to Prof Kaur and unlock</button><span class="err" id="exErr"></span></div></section>` : ''}
@@ -818,7 +818,7 @@ setInterval(tick, 1000);
 /* ---------------- actions ---------------- */
 const val = id => ($('#' + id)?.value || '').trim();
 function syncEdit() {
-  if (!S.edit) return;
+  if (!S.edit || !$('#edRows')) return;   // nothing to read unless the builder is on screen
   S.edit.steps = [...document.querySelectorAll('#edRows .blk')].map((b, i) => {
     const o = S.edit.steps[i], g = f => b.querySelector('[data-f=' + f + ']'), q = { ...o, t: g('t').value.trim(), reagent: g('reagent').value, vol: +g('vol').value || 0, unit: g('unit').value, per: g('per').value, note: g('note').value.trim(), checks: [...b.querySelectorAll('[data-f=chk]')].map(c => c.value.trim()) };
     if (o.type === 'wash') { q.reps = Math.max(1, +g('reps').value || 1); q.each = +g('each').value || 0; q.m = q.reps * q.each; q.w = false; } else { q.m = +g('m').value || 0; q.w = g('w').checked; }
@@ -866,7 +866,7 @@ const A = {
     for (const k of ['exps', 'sessions', 'targets', 'files']) DB[k] = DB[k].filter(q => q.proj !== p.id);
     buildIdx(); toast('Project deleted.');
   },
-  tab: d => { S.tab = d.k; S.edit = null; },
+  tab: d => { syncEdit(); S.tab = d.k; },   // a protocol being built stays as it is while you look at another tab
   inbox: () => S.modal = { type: 'inbox' }, close: () => S.modal = null, closeBg: (d, el, ev) => { if (ev.target !== el) return false; S.modal = null; },
   // A notice still waiting to be emailed is only hidden; the mail sheet removes it once it has gone out.
   inboxClear: () => { DB.notices = DB.notices.filter(n => { if (n.to !== S.user) return true; if (n.mailedAt === null && now() - n.at < 7 * DAY) { n.cleared = now(); return true; } return false; }); },
