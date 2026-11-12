@@ -84,7 +84,24 @@ function syncProjSubs() {
   for (const id of ids) if (!projSubs.has(id))
     projSubs.set(id, ['exps', 'sessions', 'targets', 'files', 'asg'].map(c => watch('p:' + id + ':' + c, 'projects/' + id + '/' + c, false, null, null, true)));
 }
-function stopData() { dataSubs.forEach(u => u()); dataSubs = []; projSubs.forEach(o => o.forEach(u => u())); projSubs.clear(); dataMode = null;
+/* who has the site open: each open tab writes a small "here" note every few minutes */
+let PRES = new Map(), presOff = null, presT = null;
+const BEAT = 3 * MIN, ONLINE = 7 * MIN;
+function beat() { if (S.fb && dataMode && !document.hidden) B.commit([{ op: 'set', path: 'presence/' + S.fb.uid, data: { email: S.user, at: now() } }]).catch(() => {}); }
+function leave() { if (S.fb && dataMode) B.commit([{ op: 'delete', path: 'presence/' + S.fb.uid }]).catch(() => {}); }
+function onlineHTML() {
+  const t = now(), seen = new Set(), who = [...PRES.values()].filter(p => p.email && t - p.at < ONLINE && !seen.has(p.email) && seen.add(p.email))
+    .sort((a, b) => (b.email === S.user) - (a.email === S.user) || nameOf(a.email).localeCompare(nameOf(b.email)));
+  if (!who.length) return '';
+  const ini = n => n.split(/[\s.@]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join(''), nm = p => nameOf(p.email) + (p.email === S.user ? ' (you)' : '');
+  return who.slice(0, 8).map(p => `<span class="dot ${p.email === S.user ? 'me' : ''}" title="${e(nm(p))} is online" aria-label="${e(nm(p))}">${e(ini(nameOf(p.email)))}</span>`).join('')
+    + (who.length > 8 ? `<span class="dot more" title="${e(who.slice(8).map(nm).join(', '))}">+${who.length - 8}</span>` : '');
+}
+function drawOnline() { const el = $('#online'); if (el) el.innerHTML = onlineHTML(); }
+setInterval(drawOnline, MIN);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
+addEventListener('pagehide', leave);
+function stopData() { clearInterval(presT); if (presOff) { presOff(); presOff = null; } PRES = new Map(); dataSubs.forEach(u => u()); dataSubs = []; projSubs.forEach(o => o.forEach(u => u())); projSubs.clear(); dataMode = null;
   for (const k of [...SRV.keys()]) if (k !== 'config/lab') SRV.delete(k);
   for (const k of [...pending]) if (k !== 'lab') pending.delete(k); }
 function startData(mode) {
@@ -95,6 +112,8 @@ function startData(mode) {
     watch('duties', 'duties', false, null), watch('rota', 'rota', false, null), watch('dutyLog', 'dutyLog', false, null),
     watch('dutyRequests', 'dutyRequests', false, null), watch('notices', 'notices', false, ['to', '==', S.user]),
     watch('backlog', blPath(), true)];
+  presOff = B.watchCol('presence', null, m => { PRES = m; drawOnline(); }, () => {});
+  beat(); presT = setInterval(beat, BEAT);
 }
 function stopAll() { stopData(); subs.forEach(u => u()); subs = []; SRV.clear(); pending.clear(); BASE = new Map(); S.ready = false; S.labErr = null; }
 
@@ -195,7 +214,7 @@ function fixSel() {
   if (S.openSession && !sess(S.openSession)) S.openSession = null;
   if (S.tpick && !DB.targets.some(t => t.id === S.tpick.t)) S.tpick = null;
   const m = S.modal;
-  if (m && ((m.type === 'note' && !sess(m.id)) || (m.type === 'run' && !X(m.x)) || (['split', 'addVar', 'print'].includes(m.type) && !P(S.selProto)))) S.modal = null;
+  if (m && ((m.type === 'note' && !sess(m.id)) || (m.type === 'run' && !X(m.x)) || (m.type === 'pre' && !(X(S.selExp) && S.picked.size)) || (['split', 'addVar', 'print'].includes(m.type) && !P(S.selProto)))) S.modal = null;
 }
 
 /* ---------------- step blocks and reagents ---------------- */
@@ -259,6 +278,15 @@ const relies = (q, p, seen = new Set()) => q === p || (!seen.has(q) && (seen.add
 const ptype = p => p.rel ? 'Reliant' : feeds(p).length ? 'Initial' : 'Entire';
 const names = a => a.map(q => q.name).join(', ');
 const ptypeLine = p => p.rel ? `Reliant protocol: needs a processed sample from ${srcs(p).length ? names(srcs(p)) : 'an earlier protocol (not chosen yet)'}${feeds(p).length ? ', and leads into ' + names(feeds(p)) : ''}` : feeds(p).length ? `Initial protocol: leads into ${names(feeds(p))}` : 'Entire protocol: runs from start to end on its own';
+/* has the earlier protocol been done for this sample: a finished session in the study, or a note that it was done before */
+const priorOf = (pr, q, m) => (pr.prior || {})[q.id + '|' + m];
+const doneSess = (pr, q, m) => DB.sessions.find(s => s.proj === pr.id && s.proto === q.id && s.doneAt && s.mice.includes(m));
+const lacking = (x, mice) => { const ss = srcs(P(x.proto)), pr = PR(x.proj); return ss.length ? mice.filter(m => !ss.some(q => doneSess(pr, q, m) || priorOf(pr, q, m))) : []; };
+const dty = t => new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+function preLine(x, m) {
+  const pr = PR(x.proj), ss = srcs(P(x.proto)); if (!ss.length) return '';
+  return `<div class="sm muted">Previous step: ${ss.map(q => { const s = doneSess(pr, q, m), k = priorOf(pr, q, m); return e(q.name) + (s ? ' done ' + dty(s.doneAt) : k ? ` recorded as already done${k.at ? ' on ' + dty(k.at) : ', date not known'} (by ${e(users[k.by].name)})` : ' not recorded'); }).join(' · ')}</div>`;
+}
 function preHTML(p) {
   const opts = DB.protocols.filter(q => !relies(q, p)), from = p.from || [];
   return `<div class="addrow" style="flex-wrap:wrap"><label class="ck"><input type="checkbox" data-c="preOn" ${p.rel ? 'checked' : ''}> <b>Required from previous step</b></label><span class="sm muted">${p.rel ? 'This protocol starts from a sample that another protocol has already processed.' : 'Tick this if the protocol needs a sample that another protocol has already processed, for example sections from FFPE.'}</span>
@@ -650,7 +678,7 @@ function modalHTML() {
   if (m.type === 'run') {
     const x = X(m.x), s = runOf(m.x, m.t, m.m), fs = DB.files.filter(f => f.key === key(m.x, m.t, m.m));
     const p = s && P(s.proto), n = p && p.nodes.find(q => q.id === s.node), stale = n && (cur(n).n !== s.rev || !isLeaf(p, n) || vname(p, n) !== s.label);
-    h = `<h2><span class="mono">${e(m.m)}</span> · ${e(x.name)} ${e(m.t)}</h2>
+    h = `<h2><span class="mono">${e(m.m)}</span> · ${e(x.name)} ${e(m.t)}</h2>${preLine(x, m.m)}
      ${!s ? '<div class="hint">Not started. Start it from Experiments, where you can tick several samples and run them as one bench session.</div>'
       : `<div class="line">${flag(s.doneAt ? 'ok' : 'warn', s.doneAt ? 'Done ' + dt(s.doneAt) : 'On the bench')}<span class="flag info mono">${e(s.pname)} ${e(s.label)} rev ${s.rev}</span><span class="sm muted">by ${e(users[s.by].name)}, batch of ${s.mice.length}</span></div>
        ${stale ? `<div class="todo sm"><span>The protocol has changed since (now ${e(vname(p, n))} rev ${cur(n).n}). This record keeps the steps as they were done.</span></div>` : ''}
@@ -681,6 +709,17 @@ function modalHTML() {
   if (m.type === 'addVar') {
     h = `<h2>Add a variant to ${e(P(S.selProto).name)}</h2><div class="sm muted">It starts as a copy of the steps you are looking at.</div><label>Variant name<input type="text" id="avName" placeholder="e.g. Organoid"></label>
      <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="addVarSave">Add variant</button></div>`;
+  }
+  if (m.type === 'pre') {
+    const x = X(S.selExp), p = P(x.proto), ss = srcs(p), miss = lacking(x, [...S.picked]), today = new Date(now() - new Date().getTimezoneOffset() * MIN).toISOString().slice(0, 10);
+    h = `<h2>${e(x.name)} needs an earlier step</h2>
+     <div class="todo"><span>${e(p.name)} starts from a sample already processed by <b>${e(ss.map(q => q.name).join(' or '))}</b>. That is not recorded for ${miss.length} of the ${S.picked.size} ticked sample${S.picked.size === 1 ? '' : 's'}: <span class="mono">${e(miss.join(', '))}</span>.</span></div>
+     <h3>Do it first</h3>${ss.map(q => { const xs = projExps().find(y => y.proto === q.id); return xs ? `<div class="line"><button class="btn" data-a="preGo" data-x="${xs.id}">Do ${e(xs.name)} first</button></div>` : `<div class="hint">${e(q.name)} is not in this study. Add it under Study plan to run it here.</div>`; }).join('')}
+     <h3>It has already been done</h3>
+     <div class="rg">${ss.length > 1 ? `<label>Which one<select id="preSrc">${ss.map(q => `<option value="${q.id}">${e(q.name)}</option>`).join('')}</select></label>` : ''}<label>Date it was done (optional)<input type="date" id="preDate" max="${today}"></label></div>
+     <div class="hint">Leave the date empty if it is not known. This is kept on the record of each of these samples.</div>
+     <div class="line"><button class="btn pri" data-a="preDone">Record as done and start</button></div>
+     <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn" data-a="start" data-force="1">Start anyway</button></div>`;
   }
   if (m.type === 'newProto') {
     h = `<h2>Create new protocol</h2><label>Name<input type="text" id="npName" placeholder="e.g. Oil Red O staining"></label>
@@ -752,6 +791,7 @@ function render() {
   const lock = lockFor(S.user), nn = inbox().length;
   $('#app').innerHTML = `<header class="top"><span class="brand">Lab Bench Tracker</span><span class="sp"></span>
     ${vis.length ? `<label class="fld" for="selProj">Project<select id="selProj" data-c="proj">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select></label>` : ''}
+    <span id="online" class="online" role="group" aria-label="Online now">${onlineHTML()}</span>
     <span class="sm">${e(S.fb.displayName || S.user)}</span>${flag(isSup() ? 'info' : isAdmin() ? 'ok' : '', roleOf(S.user))}
     <button class="btn" data-a="inbox">Inbox ${nn ? flag('info', nn) : ''}</button><button class="btn" data-a="signout">Sign out</button></header>
    <nav class="tabs" aria-label="Sections">${TABS.map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-a="tab" data-k="${k}">${l}${k === 'reag' && lowList().length ? ' ' + flag('bad', lowList().length + ' low') : ''}</button>`).join('')}</nav>
@@ -779,7 +819,7 @@ function syncEdit() {
 const mErr = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; };
 const A = {
   signin: () => { B.signIn().catch(err => { if (err.code !== 'auth/popup-closed-by-user') toast(errMsg(err)); }); return false; },
-  signout: () => { stopAll(); B.signOutAll().then(() => location.reload()); return false; },
+  signout: () => { leave(); stopAll(); B.signOutAll().then(() => location.reload()); return false; },
   setupLab: () => {
     const sup = low($('#supEmail').value), name = $('#labName').value.trim() || 'Kaur lab';
     if (!WITS.test(sup)) { $('#setupErr').textContent = "Enter Prof Kaur's Wits email address."; return false; }
@@ -811,10 +851,24 @@ const A = {
   selExp: d => { S.selExp = d.x; S.picked.clear(); S.variant = null; }, selT: d => { S.selTarget = d.t; S.picked.clear(); },
   pick25: () => { const x = X(S.selExp), t = x.targets ? S.selTarget : ''; S.picked.clear(); for (const m of proj().samples) { if (S.picked.size >= 25) break; if (stOf(x.id, t, m.id) === 'todo') S.picked.add(m.id); } },
   pick0: () => S.picked.clear(),
-  start: () => {
+  preGo: d => {
+    const from = X(S.selExp), miss = lacking(from, [...S.picked]), x = X(d.x);
+    S.selExp = x.id; S.variant = null; S.modal = null; S.picked.clear(); if (x.targets) S.selTarget = x.targets[0];
+    if (!x.targets) miss.forEach(m => { if (stOf(x.id, '', m) === 'todo') S.picked.add(m); });
+    toast(S.picked.size ? `${S.picked.size} sample${S.picked.size === 1 ? '' : 's'} ticked for ${x.name}. Come back to ${from.name} afterwards.` : `Tick the samples for ${x.name}. If they are not listed, assign them under Study plan.`);
+  },
+  preDone: () => {
+    const x = X(S.selExp), ss = srcs(P(x.proto)), q = ss.find(y => y.id === val('preSrc')) || ss[0], dv = val('preDate'), at = dv ? new Date(dv + 'T12:00').getTime() : 0, pr = PR(x.proj);
+    if (dv && (isNaN(at) || at > now() + DAY)) return mErr('That date is in the future.');
+    pr.prior = pr.prior || {}; for (const m of lacking(x, [...S.picked])) pr.prior[q.id + '|' + m] = { at, by: S.user, on: now() };
+    return A.start({ force: '1' });
+  },
+  start: d => {
     const x = X(S.selExp), p = P(x.proto), n = leaves(p).find(q => q.id === S.variant) || leaves(p)[0];
     if (!S.picked.size) return false;
     if (!cur(n).steps.length) { toast('This protocol has no steps yet. Build them under Protocols first.'); return false; }
+    if (!d.force && lacking(x, [...S.picked]).length) { S.modal = { type: 'pre' }; return; }
+    S.modal = null;
     const s = newSession(S.project, x.id, x.targets ? S.selTarget : '', [...S.picked], n.id, cur(n).n, S.user); buildIdx(); S.picked.clear(); S.openSession = s.id; S.tab = 'today'; toast('Bench session started with ' + s.mice.length + ' samples.');
   },
   run: d => S.modal = { type: 'run', x: d.x, t: d.t, m: d.m },

@@ -14,7 +14,9 @@ its files, for example in Google Drive.
 - **Protocols**: one lab-wide library. Protocols are built from blocks (wash, incubation, other),
   with check boxes, variants (V1.1, V1.1.1, V1.2.0) and revisions. Runs keep the revision they used.
   A protocol can be marked as needing a processed sample from an earlier protocol (reliant, e.g.
-  IHC after FFPE); the one it starts from shows as initial, and the rest as entire.
+  IHC after FFPE); the one it starts from shows as initial, and the rest as entire. Starting a reliant
+  experiment on a sample with no record of the earlier step gives a warning, with the choice to
+  do it first, record it as already done (with or without a date), or start anyway.
 - **Study plan**: samples, experiments taken from the lab protocols (with genes or proteins per
   study), and a grid of which sample gets which experiment.
 - **Experiments / Today**: bench sessions for a batch of samples, step by step, with timers,
@@ -51,7 +53,7 @@ The app starts empty: there is no example data.
 - `projects/{id}`: name, description, members, samples, experiment order. Under it: `exps`,
   `asg` (which sample gets which experiment), `sessions`, `targets`, `files` (result links).
 - Lab-wide: `protocols`, `reagents`, `duties`, `rota` (one per month), `dutyLog`, `dutyRequests`,
-  `notices`.
+  `notices`, `presence` (who has the site open, shown as circles at the top).
 
 ## Hosting and deploy
 - Main site: Firebase Hosting, https://lab-bench-tracker.web.app
