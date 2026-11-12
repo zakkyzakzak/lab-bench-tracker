@@ -220,11 +220,16 @@ function fixSel() {
 /* ---------------- step blocks and reagents ---------------- */
 const KINDS = ['Mount', 'Image / view', 'Storage', 'Thaw', 'Fix', 'Centrifuge', 'Collect / label', 'Custom'];
 const mkRev = (n, at, by, note, steps) => ({ n, at, by, note, steps });
+const plog = (p, text) => { (p.log = p.log || []).push({ at: now(), by: S.user, text }); };   // changes that are not a new revision: renames, reagent links
 const R = id => DB.reagents.find(r => r.id === id);
-const lbl = s => s.t || (s.type === 'wash' ? `Wash ${s.reps}×${s.vol ? ' in ' + s.vol + ' ' + s.unit : ''}${R(s.reagent) ? ' ' + R(s.reagent).name : ''}` : s.type === 'inc' ? 'Incubate' + (R(s.reagent) ? ' in ' + R(s.reagent).name : '') : s.kind + (R(s.reagent) ? ' with ' + R(s.reagent).name : ''));
-const rn = s => s.reagent === '@target' ? 'of the reagent linked to the gene or protein' : R(s.reagent) ? R(s.reagent).name : '';
+/* a step's reagent is one from the lab list, or ('@name') a name typed in the builder that can be linked to the list later */
+const typed = s => s.reagent === '@name' ? (s.rname || '').trim() : '';
+const rnm = s => typed(s) || (R(s.reagent) ? R(s.reagent).name : '');
+const lbl = s => s.t || (s.type === 'wash' ? `Wash ${s.reps}×${s.vol ? ' in ' + s.vol + ' ' + s.unit : ''}${rnm(s) ? ' ' + rnm(s) : ''}` : s.type === 'inc' ? 'Incubate' + (rnm(s) ? ' in ' + rnm(s) : '') : s.kind + (rnm(s) ? ' with ' + rnm(s) : ''));
+const rn = s => s.reagent === '@target' ? 'of the reagent linked to the gene or protein' : rnm(s);
+const typedNames = p => { const m = new Map(); for (const n of p.nodes) for (const r of n.revs) for (const q of r.steps) { const t = typed(q); if (t && !m.has(low(t))) m.set(low(t), t); } return [...m.values()]; };
 const amt = s => s.vol && rn(s) ? `${s.vol} ${s.unit}${s.type === 'wash' && s.reps > 1 ? ' × ' + s.reps : ''} ${rn(s)}, per ${s.per}` : '';
-const blank = (type, kind) => ({ type, kind: kind || 'Custom', t: '', m: type === 'wash' ? 15 : type === 'inc' ? 60 : 10, w: type === 'inc', reagent: '', vol: type === 'wash' ? 5 : 0, unit: 'mL', reps: type === 'wash' ? 3 : 1, each: 5, per: 'sample', checks: [], note: '' });
+const blank = (type, kind) => ({ type, kind: kind || 'Custom', t: '', m: type === 'wash' ? 15 : type === 'inc' ? 60 : 10, w: type === 'inc', reagent: '', rname: '', vol: type === 'wash' ? 5 : 0, unit: 'mL', reps: type === 'wash' ? 3 : 1, each: 5, per: 'sample', checks: [], note: '' });
 const toML = (v, u) => u === 'µL' ? v / 1000 : v;
 const fmtV = (ml, u) => u === 'µL' ? Math.round(ml * 1000) + ' µL' : (Math.round(ml * 10) / 10) + ' mL';
 const needML = (q, n) => q.vol && q.reagent ? toML(q.vol, q.unit) * (q.type === 'wash' ? q.reps : 1) * (q.per === 'batch' ? 1 : n) : 0;
@@ -233,14 +238,15 @@ function stock(r) { const tot = toML(r.bottles * r.per, r.unit), left = Math.max
 const lowList = () => DB.reagents.filter(r => stock(r).low);
 const inProj = q => !!proj() && projExps().some(x => x.proto === q.id);
 const usedIn = q => DB.projects.filter(pr => pr.exps.some(id => X(id)?.proto === q.id)).map(pr => pr.name).join(', ') || 'no project yet';
-const stepLi = (s, i) => `<li><span class="n">${i + 1}</span><div class="tx"><b>${e(lbl(s))}</b>${amt(s) ? `<div class="sm muted">${e(amt(s))}</div>` : ''}${s.checks.filter(Boolean).map(c => `<div class="sm">☐ ${e(c)}</div>`).join('')}${s.note ? `<div class="sm muted">Comment: ${e(s.note)}</div>` : ''}</div><div class="rt sm muted">${dur(s.m)} · ${s.w ? 'hands-free' : 'hands-on'}</div></li>`;
+const stepLi = (s, i) => `<li><span class="n">${i + 1}</span><div class="tx"><b>${e(lbl(s))}</b>${amt(s) ? `<div class="sm muted">${e(amt(s))}</div>` : ''}${typed(s) ? `<div class="sm muted">${e(typed(s))} is not linked to the reagent list yet, so its stock is not counted.</div>` : ''}${s.checks.filter(Boolean).map(c => `<div class="sm">☐ ${e(c)}</div>`).join('')}${s.note ? `<div class="sm muted">Comment: ${e(s.note)}</div>` : ''}</div><div class="rt sm muted">${dur(s.m)} · ${s.w ? 'hands-free' : 'hands-on'}</div></li>`;
 const prevHTML = steps => steps.length ? `<div class="sm muted">${dur(tot(steps))} in total · ${dur(hands(steps))} hands-on</div><ol class="steps">${steps.map(stepLi).join('')}</ol>` : '<div class="hint">Nothing yet. Add the first block on the left.</div>';
 function blkHTML(s, i) {
   const sel = (f, opts, v) => `<select data-f="${f}">${opts.map(o => `<option value="${e(o[0])}" ${o[0] === v ? 'selected' : ''}>${e(o[1])}</option>`).join('')}</select>`;
   return `<div class="blk ${s.type}" data-i="${i}"><div class="line"><b class="grow">Step ${i + 1} · ${s.type === 'wash' ? 'Wash' : s.type === 'inc' ? 'Incubation' : 'Other'}</b><button class="btn sm" data-a="edUp" data-i="${i}" aria-label="Move step up" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-a="edDown" data-i="${i}" aria-label="Move step down">↓</button><button class="btn sm" data-a="edDel" data-i="${i}">Remove</button></div>
    <input type="text" data-f="t" value="${e(s.t)}" placeholder="Description (optional). Left empty, it is written from the choices below." aria-label="Description">
    <div class="bf">${s.type === 'other' ? `<label>Kind${sel('kind', KINDS.map(k => [k, k]), s.kind)}</label>` : ''}
-    <label>Reagent${sel('reagent', [['', 'None'], ['@target', 'Depends on the gene or protein']].concat(DB.reagents.map(r => [r.id, r.name])), s.reagent)}</label>
+    <label>Reagent${sel('reagent', [['', 'None'], ['@name', 'Not in the list: type its name'], ['@target', 'Depends on the gene or protein']].concat(DB.reagents.map(r => [r.id, r.name])), s.reagent)}</label>
+    ${s.reagent === '@name' ? `<label>Reagent name<input type="text" data-f="rname" value="${e(s.rname || '')}" placeholder="e.g. PBS" list="rgNames"></label>` : ''}
     <label>Amount<input type="number" data-f="vol" value="${s.vol || ''}" min="0" step="any"></label><label>Unit${sel('unit', [['mL', 'mL'], ['µL', 'µL']], s.unit)}</label>
     <label>Per${sel('per', [['sample', 'sample'], ['batch', 'batch']], s.per)}</label>
     ${s.type === 'wash' ? `<label>Times<input type="number" data-f="reps" value="${s.reps}" min="1"></label><label>Min per wash<input type="number" data-f="each" value="${s.each}" min="0" step="any"></label>`
@@ -251,6 +257,8 @@ function blkHTML(s, i) {
 function builderHTML(p, n) {
   const E = S.edit, first = !cur(n).steps.length;
   return `<div class="bld"><div class="stack"><h3>Build ${e(p.name)} ${e(vname(p, n))}</h3><div class="hint">${first ? 'Add the blocks in the order they are done at the bench.' : `Saving makes rev ${cur(n).n + 1}. Runs already done keep rev ${cur(n).n} and earlier exactly as they were performed.`}</div>
+   <label class="sm" for="edName"><b>Protocol name</b></label><input type="text" id="edName" value="${e(E.name)}">
+   <datalist id="rgNames">${DB.reagents.map(r => `<option value="${e(r.name)}">`).join('')}</datalist>
    ${preHTML(p)}
    <div id="edRows" class="stack">${E.steps.map(blkHTML).join('')}</div>
    <div class="addrow"><b>Step ${E.steps.length + 1}</b><button class="btn sm" data-a="edAdd" data-t="wash">Add wash</button><button class="btn sm" data-a="edAdd" data-t="inc">Add incubation</button><select id="addOther" data-c="addOther" aria-label="Add another kind of step"><option value="">Add other…</option>${KINDS.map(k => `<option>${e(k)}</option>`).join('')}</select></div>
@@ -286,6 +294,12 @@ const dty = t => new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month
 function preLine(x, m) {
   const pr = PR(x.proj), ss = srcs(P(x.proto)); if (!ss.length) return '';
   return `<div class="sm muted">Previous step: ${ss.map(q => { const s = doneSess(pr, q, m), k = priorOf(pr, q, m); return e(q.name) + (s ? ' done ' + dty(s.doneAt) : k ? ` recorded as already done${k.at ? ' on ' + dty(k.at) : ', date not known'} (by ${e(users[k.by].name)})` : ' not recorded'); }).join(' · ')}</div>`;
+}
+/* reagents typed by name in this protocol, each with a way to tie it to the lab's reagent list afterwards */
+function linkHTML(p) {
+  const names = typedNames(p); if (!names.length) return '';
+  return `<div class="card" style="margin:12px 0"><h3>Reagents typed by name</h3><div class="hint">These are not in the lab's reagent list yet, so no stock is counted for them. Link each one to the list when it is there.</div>
+   ${names.map((t, i) => { const hit = DB.reagents.find(r => low(r.name) === low(t)); return `<div class="line" style="flex-wrap:wrap"><b class="grow">${e(t)}</b>${DB.reagents.length ? `<select id="lk${i}" aria-label="Reagent to link ${e(t)} to">${DB.reagents.map(r => `<option value="${r.id}" ${r === hit ? 'selected' : ''}>${e(r.name)}</option>`).join('')}</select><button class="btn sm ${hit ? 'pri' : ''}" data-a="rgLink" data-n="${e(t)}" data-sel="lk${i}">Link</button>` : ''}${hit ? '' : `<button class="btn sm" data-a="rgFromName" data-n="${e(t)}">Add to the reagent list</button>`}</div>`; }).join('')}</div>`;
 }
 function preHTML(p) {
   const opts = DB.protocols.filter(q => !relies(q, p)), from = p.from || [];
@@ -506,7 +520,8 @@ V.protos = () => {
       : `${isCur ? '' : `<div class="todo"><span>You are looking at rev ${r.n}, an older revision. It stays here because ${used(n, r)} run${used(n, r) === 1 ? ' was' : 's were'} done with it.</span><button class="btn sm" data-a="rev" data-n="">Back to the current revision</button></div>`}
       ${leaf ? '' : `<div class="todo"><span>${e(n.name)} has been split into sub-variants, so new sessions use those. This page is kept for the runs already done with it.</span></div>`}
       ${r.steps.length ? `<ol class="steps">${r.steps.map(stepLi).join('')}</ol>` : '<div class="hint">This protocol has no steps yet. Press Build steps to add them.</div>'}
-      <div class="hist"><h3 style="margin-bottom:6px">Revision history</h3>${[...n.revs].reverse().map(q => `<div><button class="lnk" data-a="rev" data-n="${q.n}">rev ${q.n}</button> · ${dt(q.at)} · ${e(users[q.by].name)} · ${e(q.note)} · <span class="muted">${used(n, q)} done run${used(n, q) === 1 ? '' : 's'} pinned to it</span></div>`).join('')}</div>`;
+      ${linkHTML(p)}
+      <div class="hist"><h3 style="margin-bottom:6px">Revision history</h3>${[...n.revs].reverse().map(q => `<div><button class="lnk" data-a="rev" data-n="${q.n}">rev ${q.n}</button> · ${dt(q.at)} · ${e(users[q.by].name)} · ${e(q.note)} · <span class="muted">${used(n, q)} done run${used(n, q) === 1 ? '' : 's'} pinned to it</span></div>`).join('')}${[...(p.log || [])].reverse().map(q => `<div>${dt(q.at)} · ${e(users[q.by].name)} · ${e(q.text)}</div>`).join('')}</div>`;
     det = `<div class="hdr"><button class="back" data-a="back">← All protocols</button><div class="name">${e(p.name)}${inProj(p) ? flag('ok', 'In ' + proj().name) : ''}</div>
       <div class="who">Created by ${e(users[p.by].name)} · used in: ${e(usedIn(p))} · shared with everyone in the lab</div>
       <div class="who">${e(ptypeLine(p))}</div>
@@ -527,7 +542,7 @@ V.reag = () => `<div class="cols"><div class="stack">${DB.reagents.map(r => {
     <div class="line"><button class="btn sm" data-a="rgAdd" data-r="${r.id}">Record a new bottle</button></div></div>`;
 }).join('') || '<div class="card hint">No reagents yet. Add the first one on the right, then it can be chosen in any protocol step.</div>'}</div>
   <div class="stack"><div class="card"><h2>How stock is counted</h2><div class="hint">Nobody types stock levels in. Each step ticked off in a bench session takes its amount off the reagent: amount × times × number of samples, or once if the step is set to per batch. Everyone in the lab sees the same stock and the same low warning, on this tab and on Today.</div></div>
-   <div class="card"><h2>Add a reagent</h2><div class="rg"><label>Name<input type="text" id="rgName"></label><label>Bottles<input type="number" id="rgBottles" value="1" min="1"></label><label>Amount per bottle<input type="number" id="rgPer" min="0" step="any"></label><label>Unit<select id="rgUnit"><option>mL</option><option>µL</option></select></label><label>Warn when below<input type="number" id="rgLow" min="0" step="any"></label><label>Brand<input type="text" id="rgBrand"></label><label>Supplier<input type="text" id="rgSupplier"></label><label>Price per bottle (R)<input type="number" id="rgPrice" min="0"></label></div>
+   <div class="card"><h2>Add a reagent</h2><div class="rg"><label>Name<input type="text" id="rgName" value="${e(S.rgPrefill || '')}"></label><label>Bottles<input type="number" id="rgBottles" value="1" min="1"></label><label>Amount per bottle<input type="number" id="rgPer" min="0" step="any"></label><label>Unit<select id="rgUnit"><option>mL</option><option>µL</option></select></label><label>Warn when below<input type="number" id="rgLow" min="0" step="any"></label><label>Brand<input type="text" id="rgBrand"></label><label>Supplier<input type="text" id="rgSupplier"></label><label>Price per bottle (R)<input type="number" id="rgPrice" min="0"></label></div>
     <div class="line"><button class="btn pri" data-a="rgNew">Add reagent</button><span class="err" id="rgErr"></span></div>
     <div class="hint">Brand, supplier and price stay out of the way on screen. Brand and supplier appear on a protocol's print view.</div></div></div></div>`;
 
@@ -820,11 +835,11 @@ const val = id => ($('#' + id)?.value || '').trim();
 function syncEdit() {
   if (!S.edit || !$('#edRows')) return;   // nothing to read unless the builder is on screen
   S.edit.steps = [...document.querySelectorAll('#edRows .blk')].map((b, i) => {
-    const o = S.edit.steps[i], g = f => b.querySelector('[data-f=' + f + ']'), q = { ...o, t: g('t').value.trim(), reagent: g('reagent').value, vol: +g('vol').value || 0, unit: g('unit').value, per: g('per').value, note: g('note').value.trim(), checks: [...b.querySelectorAll('[data-f=chk]')].map(c => c.value.trim()) };
+    const o = S.edit.steps[i], g = f => b.querySelector('[data-f=' + f + ']'), q = { ...o, t: g('t').value.trim(), reagent: g('reagent').value, rname: g('reagent').value === '@name' && g('rname') ? g('rname').value.trim() : '', vol: +g('vol').value || 0, unit: g('unit').value, per: g('per').value, note: g('note').value.trim(), checks: [...b.querySelectorAll('[data-f=chk]')].map(c => c.value.trim()) };
     if (o.type === 'wash') { q.reps = Math.max(1, +g('reps').value || 1); q.each = +g('each').value || 0; q.m = q.reps * q.each; q.w = false; } else { q.m = +g('m').value || 0; q.w = g('w').checked; }
     if (o.type === 'other') q.kind = g('kind').value; return q;
   });
-  S.edit.note = val('edNote');
+  S.edit.note = val('edNote'); S.edit.name = val('edName');
 }
 const mErr = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; };
 const A = {
@@ -924,13 +939,18 @@ const A = {
   blDel: d => { DB.backlog = DB.backlog.filter(b => b.id !== d.id); },
   selProto: d => { S.selProto = d.p; S.selNode = null; S.viewRev = null; S.edit = null; S.modal = null; }, selNode: d => { S.selNode = d.n; S.viewRev = null; S.edit = null; },
   rev: d => { S.viewRev = d.n ? +d.n : null; },
-  edStart: () => { const n = P(S.selProto).nodes.find(q => q.id === S.selNode); S.edit = { steps: cur(n).steps.map(q => ({ ...q, checks: [...q.checks] })), note: '' }; },
+  edStart: () => { const n = P(S.selProto).nodes.find(q => q.id === S.selNode); S.edit = { steps: cur(n).steps.map(q => ({ ...q, checks: [...q.checks] })), note: '', name: P(S.selProto).name }; },
   edAdd: d => { syncEdit(); S.edit.steps.push(blank(d.t)); }, edDel: d => { syncEdit(); S.edit.steps.splice(+d.i, 1); }, edCancel: () => S.edit = null,
   edUp: d => { syncEdit(); const a = S.edit.steps, i = +d.i; if (i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]]; }, edDown: d => { syncEdit(); const a = S.edit.steps, i = +d.i; if (i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]]; },
   ckAdd: d => { syncEdit(); S.edit.steps[+d.i].checks.push(''); }, ckDel: d => { syncEdit(); S.edit.steps[+d.i].checks.splice(+d.j, 1); },
   edSave: () => {
-    syncEdit(); const n = P(S.selProto).nodes.find(q => q.id === S.selNode), first = !cur(n).steps.length, steps = S.edit.steps.map(q => ({ ...q, checks: q.checks.filter(Boolean) }));
-    const bad = !steps.length ? 'Add at least one step.' : !first && !S.edit.note ? 'Say what changed and why. It is kept in the history.' : ''; if (bad) { $('#edErr').textContent = bad; return false; }
+    syncEdit(); const p = P(S.selProto), n = p.nodes.find(q => q.id === S.selNode), first = !cur(n).steps.length, steps = S.edit.steps.map(q => ({ ...q, checks: q.checks.filter(Boolean) }));
+    const nm = (S.edit.name || '').trim(), renamed = nm !== p.name, norm = a => canon(a.map(q => ({ ...q, rname: q.rname || '' }))), same = norm(steps) === norm(cur(n).steps);
+    const nameOnly = renamed && same && !S.edit.note;      // just a new name: no new revision is needed for that
+    const noName = steps.find(q => q.reagent === '@name' && !q.rname);
+    const bad = !nm ? 'Give the protocol a name.' : noName ? 'Type the name of the reagent, or choose one from the list.' : nameOnly ? '' : !steps.length ? 'Add at least one step.' : !first && !S.edit.note ? 'Say what changed and why. It is kept in the history.' : ''; if (bad) { $('#edErr').textContent = bad; return false; }
+    if (renamed) { const old = p.name; p.name = nm; plog(p, `Renamed from "${old}" to "${nm}"`); DB.exps.forEach(x => { if (x.proto === p.id && x.name === old) x.name = nm; }); }
+    if (nameOnly) { S.edit = null; toast('Renamed to ' + nm + '.'); return; }
     if (first) { cur(n).steps = steps; cur(n).at = now(); } else n.revs.push(mkRev(cur(n).n + 1, now(), S.user, S.edit.note, steps)); S.edit = null; toast('Saved as rev ' + cur(n).n + (first ? '.' : '. Runs already done keep the revision they used.'));
   },
   lib: () => S.modal = { type: 'lib' }, print: () => S.modal = { type: 'print' }, printNow: () => { window.print(); return false; },
@@ -975,7 +995,13 @@ const A = {
     const told = kind === 'once' || DB.rota[k]; if (told) who.forEach(u => notice(u, `You have a new lab duty: ${nm}.`)); toast(told ? nm + ' goes to ' + (who.map(u => users[u].name).join(' and ') || 'nobody yet') + '.' : nm + ' added. It is dealt out with the rest of the month.');
   },
   rgAdd: d => { R(d.r).bottles++; toast('One more bottle of ' + R(d.r).name + ' recorded.'); },
-  rgNew: () => { const nm = val('rgName'), per = +val('rgPer'); if (!nm || !per) { $('#rgErr').textContent = 'Give it a name and the amount per bottle.'; return false; } DB.reagents.push({ id: nid(), name: nm, bottles: +val('rgBottles') || 1, per, unit: val('rgUnit'), low: +val('rgLow') || 0, brand: val('rgBrand'), supplier: val('rgSupplier'), price: +val('rgPrice') || 0, used: 0 }); toast(nm + ' added. It can now be chosen in any protocol step.'); },
+  rgLink: d => {
+    const p = P(S.selProto), r = R(val(d.sel)); if (!p || !r) return false; let k = 0;
+    for (const n of p.nodes) for (const rv of n.revs) for (const q of rv.steps) if (typed(q) && low(typed(q)) === low(d.n)) { q.reagent = r.id; k++; }
+    plog(p, `Linked "${d.n}" to ${r.name} in the reagent list`); toast(`${d.n} is now linked to ${r.name} in ${k} step${k === 1 ? '' : 's'}. Stock is counted from the next session.`);
+  },
+  rgFromName: d => { S.rgPrefill = d.n; S.tab = 'reag'; toast('Fill in the pack size and add it, then come back to the protocol and press Link.'); },
+  rgNew: () => { S.rgPrefill = ''; const nm = val('rgName'), per = +val('rgPer'); if (!nm || !per) { $('#rgErr').textContent = 'Give it a name and the amount per bottle.'; return false; } DB.reagents.push({ id: nid(), name: nm, bottles: +val('rgBottles') || 1, per, unit: val('rgUnit'), low: +val('rgLow') || 0, brand: val('rgBrand'), supplier: val('rgSupplier'), price: +val('rgPrice') || 0, used: 0 }); toast(nm + ' added. It can now be chosen in any protocol step.'); },
   split: () => S.modal = { type: 'split' }, addVar: () => S.modal = { type: 'addVar' }, newProto: () => S.modal = { type: 'newProto' },
   splitSave: () => {
     const p = P(S.selProto), n = p.nodes.find(q => q.id === S.selNode), names = val('spNames').split(',').map(s => s.trim()).filter(Boolean);
@@ -989,7 +1015,7 @@ const A = {
   },
   newProtoSave: () => {
     const nm = val('npName'); if (!nm) return mErr('Give it a name.'); const id = nid();
-    DB.protocols.push({ id, name: nm, by: S.user, nodes: [{ id: id + '-s', parent: null, name: 'Standard', revs: [mkRev(1, now(), S.user, 'First version', [])] }] }); S.selProto = id; S.selNode = id + '-s'; S.viewRev = null; S.edit = { steps: [], note: '' }; S.modal = null; S.tab = 'protos';
+    DB.protocols.push({ id, name: nm, by: S.user, nodes: [{ id: id + '-s', parent: null, name: 'Standard', revs: [mkRev(1, now(), S.user, 'First version', [])] }] }); S.selProto = id; S.selNode = id + '-s'; S.viewRev = null; S.edit = { steps: [], note: '', name: nm }; S.modal = null; S.tab = 'protos';
   },
   propose: () => { const D = S.draft; if (!D.items.length) return false; const tg = { id: nid(), user: S.user, proj: S.project, week: D.week, status: 'proposed', excuse: null, override: D.override, items: D.items }; DB.targets.push(tg); noticeSup(`${users[S.user].name} proposed a target for ${wkLabel(tg.week)}: ${tName(tg)}. It needs your agreement.`); S.draft = newDraft(); toast('Sent to Prof Kaur.'); },
   dPick: d => { const p = S.draft.pick; p.has(d.m) ? p.delete(d.m) : p.add(d.m); }, dClear: () => S.draft.pick.clear(),
@@ -1035,6 +1061,11 @@ document.addEventListener('change', ev => {
   }
   if (c === 'addOther') { if (!el.value) return; syncEdit(); S.edit.steps.push(blank('other', el.value)); }
   commit(); render();
+});
+document.addEventListener('change', ev => {
+  const el = ev.target; if (!S.edit || !el.matches || !el.matches('#edRows [data-f=reagent]')) return;
+  const i = el.closest('.blk').dataset.i; syncEdit(); render();
+  const box = document.querySelector(`#edRows .blk[data-i="${i}"] [data-f=rname]`); if (box) box.focus();
 });
 document.addEventListener('input', ev => {
   if (S.edit && ev.target.closest('#edRows')) { syncEdit(); $('#prev').innerHTML = prevHTML(S.edit.steps); }
