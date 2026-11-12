@@ -23,7 +23,7 @@ function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = fals
 const errMsg = err => (err && err.code === 'permission-denied') ? 'Not allowed: your account does not have permission for that.' : (err && err.message) || String(err);
 
 /* ---------------- state ---------------- */
-const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [] };
+const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], gone: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [] };
 const S = { fb: null, user: '', ready: false, labErr: null, people: new Map(), tab: 'today', project: null, selMouse: null, mx: null, selExp: undefined, selTarget: '', picked: new Set(), selProto: null, selNode: null, viewRev: null, edit: null, openSession: null, freeMin: null, q: '', modal: null, variant: null, tpick: null, draft: null, planX: '', dOff: 0, addT: new Set(), addG: '', smOpen: false };
 let IDX = new Map();
 const newDraft = () => ({ week: WK + 7 * DAY, items: [], pick: new Set(), exp: '', override: false }); S.draft = newDraft();
@@ -138,7 +138,8 @@ function rebuild() {
     col(b + '/asg').forEach(a => (a.k || []).forEach(k => DB.asg.add(a.id + '|' + k)));
   }
   DB.sessions.sort((a, b) => a.startedAt - b.startedAt); DB.files.sort(byAt);
-  DB.protocols = col('protocols').sort(byName); DB.reagents = col('reagents').sort(byName);
+  // a deleted protocol that studies still use is kept out of sight ("gone") so their records keep working
+  const allP = col('protocols').sort(byName); DB.protocols = allP.filter(p => !p.deleted); DB.gone = allP.filter(p => p.deleted); DB.reagents = col('reagents').sort(byName);
   DB.duties = col('duties').sort((a, b) => byAt(a, b) || byName(a, b));
   DB.dutyLog = col('dutyLog').sort(byAt); DB.requests = col('dutyRequests').sort(byAt); DB.notices = col('notices').sort(byAt);
   DB.rota = {}; col('rota').forEach(r => DB.rota[r.id] = r.d || {});
@@ -169,7 +170,7 @@ function docs() {
   const ag = {};
   for (const k of DB.asg) { const i = k.indexOf('|'), x = X(k.slice(0, i)); if (!x || !pids.has(x.proj)) continue; (ag[`projects/${x.proj}/asg/${x.id}`] ||= []).push(k.slice(i + 1)); }
   for (const k in ag) m.set(k, { k: ag[k].sort() });
-  for (const [name, list] of [['protocols', DB.protocols], ['reagents', DB.reagents], ['duties', DB.duties], ['dutyLog', DB.dutyLog], ['dutyRequests', DB.requests], ['notices', DB.notices]])
+  for (const [name, list] of [['protocols', [...DB.protocols, ...DB.gone]], ['reagents', DB.reagents], ['duties', DB.duties], ['dutyLog', DB.dutyLog], ['dutyRequests', DB.requests], ['notices', DB.notices]])
     for (const x of list) put(name + '/' + x.id, x);
   for (const k in DB.rota) m.set('rota/' + k, { d: DB.rota[k] });
   if (S.fb && (DB.backlog.length || SRV.has(blPath()))) m.set(blPath(), { items: DB.backlog });
@@ -214,7 +215,7 @@ function fixSel() {
   if (S.openSession && !sess(S.openSession)) S.openSession = null;
   if (S.tpick && !DB.targets.some(t => t.id === S.tpick.t)) S.tpick = null;
   const m = S.modal;
-  if (m && ((m.type === 'note' && !sess(m.id)) || (m.type === 'run' && !X(m.x)) || (m.type === 'pre' && !(X(S.selExp) && S.picked.size)) || (['split', 'addVar', 'print'].includes(m.type) && !P(S.selProto)))) S.modal = null;
+  if (m && ((m.type === 'note' && !sess(m.id)) || (m.type === 'run' && !X(m.x)) || (m.type === 'pre' && !(X(S.selExp) && S.picked.size)) || (['split', 'addVar', 'print', 'delProto'].includes(m.type) && !P(S.selProto)))) S.modal = null;
 }
 
 /* ---------------- step blocks and reagents ---------------- */
@@ -233,7 +234,8 @@ const lbl = s => s.t || (s.type === 'wash' ? `Wash${s.reps > 1 ? ' ' + s.reps + 
 const rn = s => s.reagent === '@target' ? 'of the reagent linked to the gene or protein' : rnm(s);
 const typedNames = p => { const m = new Map(); for (const n of p.nodes) for (const r of n.revs) for (const q of r.steps) for (const x of [q, ...(q.more || [])]) { const t = typed(x); if (t && !m.has(low(t))) m.set(low(t), t); } return [...m.values()]; };
 const amt = s => s.vol && rn(s) ? `${s.vol} ${s.unit}${s.type === 'wash' && s.reps > 1 ? ' × ' + s.reps : ''} ${rn(s)}, per ${s.per}` : '';
-const blank = (type, kind) => ({ type, kind: kind || 'Custom', t: '', m: type === 'wash' ? 15 : type === 'inc' ? 60 : 10, w: type === 'inc', reagent: '', rname: '', vol: type === 'wash' ? 5 : 0, unit: 'mL', reps: type === 'wash' ? 3 : 1, each: 5, per: 'sample', checks: [], note: '', conc: '', temp: '', equip: '', until: '', mMax: 0, more: [] });
+const blank = (type, kind) => ({ type, kind: kind || 'Custom', t: '', m: type === 'wash' ? 15 : type === 'inc' ? 60 : 10, w: type === 'inc', reagent: '', rname: '', vol: type === 'wash' ? 5 : 0, unit: 'mL', reps: type === 'wash' ? 3 : 1, each: 5, per: 'sample', checks: [], note: '', conc: '', temp: '', equip: '', until: '', mMax: 0, more: [], prog: { n: 0, stages: [] }, outs: [] });
+const progTxt = s => { const g = (s.prog && s.prog.stages) || []; return g.length ? (s.prog.n > 1 ? s.prog.n + ' cycles of ' : '') + g.map(x => [x.temp, x.time].filter(Boolean).join(' for ')).join(' → ') : ''; };
 /* a step's main reagent plus any further ones ("more"), each seen with the step's own repeats and per-sample setting */
 const parts = s => [s, ...(s.more || []).map(x => ({ ...x, type: s.type, reps: s.reps, per: s.per }))];
 const unlinked = s => [s, ...(s.more || [])].map(typed).filter(Boolean);
@@ -243,10 +245,14 @@ function info(s, skipAmt) {
   const a = [], main = [skipAmt ? '' : amt(s), s.conc].filter(Boolean).join(' · '); if (main) a.push(main);
   for (const x of s.more || []) { const t = [x.vol ? x.vol + ' ' + x.unit : '', rnm(x), x.conc].filter(Boolean).join(' '); if (t) a.push('+ ' + t); }
   if (s.temp) a.push('Temperature: ' + s.temp); if (s.equip) a.push('Equipment: ' + s.equip); if (s.until) a.push('Until: ' + s.until);
+  if (progTxt(s)) a.push('Programme: ' + progTxt(s)); if ((s.outs || []).length) a.push('Produces: ' + s.outs.join(', '));
   return a;
 }
 const toML = (v, u) => v * (VOL[u] || 1);
 const fmtV = (ml, u) => u === 'µL' ? Math.round(ml * 1000) + ' µL' : (Math.round(ml * 10) / 10) + ' mL';
+/* a protocol that is repeated (weekly dosing, measurements): in a study each repeat becomes its own round */
+const schedTxt = sc => sc && sc.n > 1 ? `Repeated ${sc.n} times${sc.days ? ', every ' + (sc.days === 1 ? 'day' : sc.days + ' days') : ''}` : '';
+const rounds = sc => Array.from({ length: sc.n }, (_, i) => (sc.days === 7 ? 'Week ' : 'Round ') + (i + 1));
 const needML = (q, n) => q.vol && q.reagent && VOL[q.unit] ? toML(q.vol, q.unit) * (q.type === 'wash' ? q.reps : 1) * (q.per === 'batch' ? 1 : n) : 0;
 /* stock is never typed in: it is bottles bought minus what every finished step has drawn (kept as "used" on the reagent) */
 function stock(r) { const tot = toML(r.bottles * r.per, r.unit), left = Math.max(0, tot - (r.used || 0)); return { tot, left, low: left <= toML(r.low, r.unit) }; }
@@ -272,7 +278,11 @@ function blkHTML(s, i) {
     <label>Done when (instead of a time)<input type="text" data-f="until" value="${e(s.until || '')}" placeholder="e.g. the cells detach"></label></div>
    ${(s.more || []).map((x, j) => `<div class="line more" style="flex-wrap:wrap"><span class="sm muted">+</span><input type="text" data-f="xname" class="grow" value="${e(rnm(x) || x.rname || '')}" placeholder="Another reagent in this step" list="rgNames" aria-label="Another reagent"><input type="number" data-f="xvol" value="${x.vol || ''}" min="0" step="any" style="width:84px" aria-label="Amount"><select data-f="xunit" aria-label="Unit">${UNITS.map(u => `<option ${u === x.unit ? 'selected' : ''}>${u}</option>`).join('')}</select><input type="text" data-f="xconc" value="${e(x.conc || '')}" placeholder="Concentration" style="width:130px" aria-label="Concentration"><button class="btn sm" data-a="moreDel" data-i="${i}" data-j="${j}">Remove</button></div>`).join('')}
    ${s.checks.map((c, j) => `<div class="line"><span aria-hidden="true">☐</span><input type="text" data-f="chk" class="grow" value="${e(c)}" placeholder="What to tick off, e.g. kept in the dark" aria-label="Check box text"><button class="btn sm" data-a="ckDel" data-i="${i}" data-j="${j}">Remove</button></div>`).join('')}
-   <div class="line"><button class="btn sm" data-a="ckAdd" data-i="${i}">Add a check box</button><button class="btn sm" data-a="moreAdd" data-i="${i}">Add another reagent</button><input type="text" data-f="note" class="grow" value="${e(s.note)}" placeholder="Comment for whoever runs this step (optional)" aria-label="Comment"></div></div>`;
+   ${((s.prog && s.prog.stages) || []).length ? `<div class="line" style="flex-wrap:wrap"><span class="sm muted">Programme, repeated</span><input type="number" data-f="gn" value="${s.prog.n || ''}" min="0" style="width:72px" aria-label="Number of cycles"><span class="sm muted">times (leave empty if it runs once)</span></div>` : ''}
+   ${((s.prog && s.prog.stages) || []).map((g, j) => `<div class="line stage" style="flex-wrap:wrap"><span class="sm muted">${j + 1}.</span><input type="text" data-f="gtemp" value="${e(g.temp || '')}" placeholder="Temperature or setting, e.g. 95 °C" style="width:auto;flex:1 1 150px" list="tempList" aria-label="Stage temperature or setting"><input type="text" data-f="gtime" value="${e(g.time || '')}" placeholder="Time, e.g. 15 s" style="width:120px" aria-label="Stage time"><button class="btn sm" data-a="stageDel" data-i="${i}" data-j="${j}">Remove</button></div>`).join('')}
+   ${(s.outs || []).map((o, j) => `<div class="line"><span class="sm muted">Produces</span><input type="text" data-f="out" class="grow" value="${e(o)}" placeholder="What comes out of this step, e.g. formalin-fixed piece" aria-label="Output of this step"><button class="btn sm" data-a="outDel" data-i="${i}" data-j="${j}">Remove</button></div>`).join('')}
+   <div class="line" style="flex-wrap:wrap"><button class="btn sm" data-a="ckAdd" data-i="${i}">Add a check box</button><button class="btn sm" data-a="moreAdd" data-i="${i}">Add another reagent</button><button class="btn sm" data-a="stageAdd" data-i="${i}" title="For a programmed run such as thermal cycling: one row per stage">Add a programme stage</button><button class="btn sm" data-a="outAdd" data-i="${i}" title="When this step splits the sample or makes something a later protocol starts from">Add an output</button></div>
+   <div class="line"><input type="text" data-f="note" class="grow" value="${e(s.note)}" placeholder="Comment for whoever runs this step (optional)" aria-label="Comment"></div></div>`;
 }
 function builderHTML(p, n) {
   const E = S.edit, first = !cur(n).steps.length;
@@ -280,6 +290,7 @@ function builderHTML(p, n) {
    <label class="sm" for="edName"><b>Protocol name</b></label><input type="text" id="edName" value="${e(E.name)}">
    <label class="sm" for="edNotes"><b>Notes for the whole protocol</b> (optional, e.g. "all steps at room temperature")</label><textarea id="edNotes" rows="2">${e(E.pnotes || '')}</textarea>
    <label class="sm" for="edEthics"><b>Ethics approval number</b> (optional, for animal or human work)</label><input type="text" id="edEthics" value="${e(E.ethics || '')}" placeholder="e.g. AREC2024-05-008D">
+   <div class="line" style="flex-wrap:wrap"><b class="sm">Repeated on a schedule</b><input type="number" id="edSchedN" value="${e(E.schedN || '')}" min="0" style="width:72px" aria-label="Number of times"><span class="sm">times, every</span><input type="number" id="edSchedD" value="${e(E.schedD || '')}" min="0" style="width:72px" aria-label="Days between repeats"><span class="sm">days</span><span class="sm muted">(leave empty for a protocol that is done once per sample)</span></div>
    <datalist id="tempList">${TEMPS.map(t => `<option value="${e(t)}">`).join('')}</datalist>
    <datalist id="rgNames">${DB.reagents.map(r => `<option value="${e(r.name)}">`).join('')}</datalist>
    ${preHTML(p)}
@@ -291,7 +302,7 @@ function builderHTML(p, n) {
 }
 
 /* ---------------- protocol versions ---------------- */
-const P = id => DB.protocols.find(p => p.id === id), X = id => DB.exps.find(x => x.id === id), PR = id => DB.projects.find(p => p.id === id);
+const P = id => DB.protocols.find(p => p.id === id) || DB.gone.find(p => p.id === id), X = id => DB.exps.find(x => x.id === id), PR = id => DB.projects.find(p => p.id === id);
 const kids = (p, id) => p.nodes.filter(n => n.parent === id);
 const isLeaf = (p, n) => !kids(p, n.id).length;
 const leaves = p => p.nodes.filter(n => isLeaf(p, n));
@@ -303,13 +314,15 @@ const vname = (p, n) => vlabel(p, n) + (n.name === 'Standard' ? '' : ' ' + n.nam
 const cur = n => n.revs[n.revs.length - 1];
 const tot = s => s.reduce((a, x) => a + x.m, 0), hands = s => s.reduce((a, x) => a + (x.w ? 0 : x.m), 0), maxW = s => Math.max(0, ...s.filter(x => x.w).map(x => x.m));
 /* what a protocol starts from: "reliant" needs a processed sample from an earlier protocol, "initial" is one that others start from, "entire" runs start to end on its own */
-const srcs = p => p.rel ? (p.from || []).map(P).filter(Boolean) : [];
+const srcs = p => p.rel ? (p.from || []).map(P).filter(q => q && !q.deleted) : [];
 const feeds = p => DB.protocols.filter(q => srcs(q).includes(p));
 const relies = (q, p, seen = new Set()) => q === p || (!seen.has(q) && (seen.add(q), srcs(q).some(x => relies(x, p, seen))));
 const ptype = p => p.rel ? 'Reliant' : feeds(p).length ? 'Initial' : 'Entire';
 const names = a => a.map(q => q.name).join(', ');
+const outsOf = p => [...new Set(leaves(p).flatMap(n => cur(n).steps.flatMap(q => q.outs || [])).filter(Boolean))];
+const srcNames = p => srcs(p).map(q => q.name + ((p.uses || {})[q.id] ? ' (' + p.uses[q.id] + ')' : '')).join(', ');
 const needAll = p => !!p.all && srcs(p).length > 1;
-const ptypeLine = p => p.rel ? `Reliant protocol: needs ${srcs(p).length > 1 ? (needAll(p) ? 'all of: ' : 'any one of: ') : 'a processed sample from '}${srcs(p).length ? names(srcs(p)) : 'an earlier protocol (not chosen yet)'}${feeds(p).length ? ', and leads into ' + names(feeds(p)) : ''}` : feeds(p).length ? `Initial protocol: leads into ${names(feeds(p))}` : 'Entire protocol: runs from start to end on its own';
+const ptypeLine = p => p.rel ? `Reliant protocol: needs ${srcs(p).length > 1 ? (needAll(p) ? 'all of: ' : 'any one of: ') : 'a processed sample from '}${srcs(p).length ? srcNames(p) : 'an earlier protocol (not chosen yet)'}${feeds(p).length ? ', and leads into ' + names(feeds(p)) : ''}` : feeds(p).length ? `Initial protocol: leads into ${names(feeds(p))}` : 'Entire protocol: runs from start to end on its own';
 /* has the earlier protocol been done for this sample: a finished session in the study, or a note that it was done before */
 const priorOf = (pr, q, m) => (pr.prior || {})[q.id + '|' + m];
 const doneSess = (pr, q, m) => DB.sessions.find(s => s.proj === pr.id && s.proto === q.id && s.doneAt && s.mice.includes(m));
@@ -335,6 +348,9 @@ function parseImport(text) {
     const unit = u => { u = str(u, 8).replace('μ', 'µ'); return /^ul$/i.test(u) ? 'µL' : /^ug$/i.test(u) ? 'µg' : UNITS.find(k => low(k) === low(u)) || 'mL'; };
     b.vol = num(q.amount, 0, 1e9); b.unit = unit(q.unit); b.per = q.per === 'batch' ? 'batch' : 'sample';
     b.conc = str(q.concentration, 80); b.temp = str(q.temperature, 60); b.equip = str(q.equipment, 120); b.until = str(q.until, 160); b.mMax = type === 'wash' ? 0 : num(q.minutesMax, 0, 1e6);
+    const cy = q.cycle && typeof q.cycle === 'object' ? q.cycle : {};
+    b.prog = { n: Math.round(num(cy.cycles, 0, 999)), stages: (Array.isArray(cy.stages) ? cy.stages : []).slice(0, 12).map(g => g && typeof g === 'object' ? { temp: str(g.temperature, 60), time: str(g.time, 40) } : null).filter(g => g && (g.temp || g.time)) };
+    b.outs = (Array.isArray(q.produces) ? q.produces : []).map(o => str(o, 80)).filter(Boolean).slice(0, 8);
     b.more = (Array.isArray(q.components) ? q.components : []).slice(0, 12).map(x => x && typeof x === 'object' ? { rn: str(x.reagent, 80), vol: num(x.amount, 0, 1e9), unit: unit(x.unit), conc: str(x.concentration, 80) } : null).filter(x => x && x.rn);
     if (type === 'wash') { b.reps = Math.max(1, Math.round(num(q.times, 1, 99))); b.each = num(q.minutesEach, 0, 1e5); b.m = b.reps * b.each; b.w = false; }
     else { b.m = num(q.minutes, 0, 1e6); b.w = !!q.handsFree; }
@@ -345,7 +361,8 @@ function parseImport(text) {
   return j.protocols.slice(0, 200).map(p => {
     p = p && typeof p === 'object' ? p : {}; const name = str(p.name, 120); if (!name) return null;
     const vs = Array.isArray(p.variants) && p.variants.length ? p.variants.slice(0, 20).map(v => ({ name: str(v && v.name, 60) || 'Variant', steps: steps(v && v.steps) })) : [{ name: 'Standard', steps: steps(p.steps) }];
-    return { name, source: str(p.source, 200), rel: !!p.requiresPrevious, prev: (Array.isArray(p.previousProtocols) ? p.previousProtocols : []).map(n => str(n, 120)).filter(Boolean).slice(0, 20), all: !!p.previousNeedsAll, notes: str(p.notes, 1000), ethics: str(p.ethicsApproval, 80), variants: vs };
+    return { name, source: str(p.source, 200), rel: !!p.requiresPrevious, prev: (Array.isArray(p.previousProtocols) ? p.previousProtocols : []).map(n => str(n, 120)).filter(Boolean).slice(0, 20), all: !!p.previousNeedsAll, sched: p.schedule && typeof p.schedule === 'object' && num(p.schedule.repeats, 0, 60) > 1 ? { n: Math.round(num(p.schedule.repeats, 0, 60)), days: Math.round(num(p.schedule.everyDays, 0, 365)) } : null,
+      uses: p.previousUses && typeof p.previousUses === 'object' ? Object.entries(p.previousUses).slice(0, 20).map(([k, v]) => [str(k, 120), str(v, 80)]).filter(q => q[0] && q[1]) : [], notes: str(p.notes, 1000), ethics: str(p.ethicsApproval, 80), variants: vs };
   }).filter(Boolean);
 }
 const nameTaken = n => DB.protocols.some(q => low(q.name) === low(n));
@@ -353,7 +370,7 @@ function importHTML(m) {
   const names = new Set(); m.list.forEach(p => p.variants.forEach(v => v.steps.forEach(q => [q, ...q.more].forEach(x => { if (x.rn && !DB.reagents.some(r => low(r.name) === low(x.rn))) names.add(low(x.rn)); }))));
   return `<h2>Import protocols</h2><div class="sm muted">From <span class="mono">${e(m.file)}</span> · ${m.list.length} protocol${m.list.length === 1 ? '' : 's'} found. Tick the ones to bring into the lab library.</div>
    <div class="stack" style="max-height:50vh;overflow:auto">${m.list.map((p, i) => { const n = p.variants.reduce((a, v) => a + v.steps.length, 0), dup = nameTaken(p.name);
-     return `<label class="line" style="border-top:1px solid var(--line);padding-top:8px;align-items:flex-start"><input type="checkbox" class="impCk" value="${i}" ${m.pick.has(i) ? 'checked' : ''}><span class="grow"><b>${e(p.name)}</b><br><span class="sm muted">${n} step${n === 1 ? '' : 's'}${p.variants.length > 1 ? ' in ' + p.variants.length + ' variants' : ''}${p.rel || p.prev.length ? ' · reliant' + (p.prev.length ? ', after ' + e(p.prev.join(', ')) : '') : ''}${p.source ? ' · ' + e(p.source) : ''}</span>${dup ? `<br><span class="sm" style="color:var(--warn)">A protocol with this name is already in the library. If ticked, it comes in as "${e(p.name)} (imported)".</span>` : ''}${n ? '' : '<br><span class="sm" style="color:var(--warn)">No steps were found for this one.</span>'}</span></label>`; }).join('')}</div>
+     return `<label class="line" style="border-top:1px solid var(--line);padding-top:8px;align-items:flex-start"><input type="checkbox" class="impCk" value="${i}" ${m.pick.has(i) ? 'checked' : ''}><span class="grow"><b>${e(p.name)}</b><br><span class="sm muted">${n} step${n === 1 ? '' : 's'}${p.variants.length > 1 ? ' in ' + p.variants.length + ' variants' : ''}${p.rel || p.prev.length ? ' · reliant' + (p.prev.length ? ', after ' + e(p.prev.join(', ')) : '') : ''}${p.sched ? ' · ' + e(schedTxt(p.sched).toLowerCase()) : ''}${p.source ? ' · ' + e(p.source) : ''}</span>${dup ? `<br><span class="sm" style="color:var(--warn)">A protocol with this name is already in the library. If ticked, it comes in as "${e(p.name)} (imported)".</span>` : ''}${n ? '' : '<br><span class="sm" style="color:var(--warn)">No steps were found for this one.</span>'}</span></label>`; }).join('')}</div>
    ${names.size ? `<div class="hint">${names.size} reagent name${names.size === 1 ? ' is' : 's are'} not in the lab's reagent list. They come in as typed names, which you can link to the list afterwards from each protocol's page.</div>` : ''}
    <div class="hint">Nothing is changed in protocols you already have. Imported protocols start at rev 1 and can be edited like any other.</div>
    <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="impSave">Import the ticked protocols</button></div>`;
@@ -368,7 +385,7 @@ function linkHTML(p) {
 function preHTML(p) {
   const opts = DB.protocols.filter(q => !relies(q, p)), from = p.from || [];
   return `<div class="addrow" style="flex-wrap:wrap"><label class="ck"><input type="checkbox" data-c="preOn" ${p.rel ? 'checked' : ''}> <b>Required from previous step</b></label><span class="sm muted">${p.rel ? 'This protocol starts from a sample that another protocol has already processed.' : 'Tick this if the protocol needs a sample that another protocol has already processed, for example sections from FFPE.'}</span>
-   ${p.rel ? `<div class="stack" style="flex-basis:100%"><div class="sm"><b>Which protocol does the sample come from?</b></div>${opts.length ? `<div class="line" style="flex-wrap:wrap">${opts.map(q => `<label class="ck sm"><input type="checkbox" data-c="preFrom" data-p="${q.id}" ${from.includes(q.id) ? 'checked' : ''}> ${e(q.name)}</label>`).join('')}</div>` : '<div class="hint">There is no other protocol to choose yet. Create the earlier protocol, then come back and tick it here.</div>'}${from.length > 1 ? `<label class="ck sm"><input type="checkbox" data-c="preAll" ${p.all ? 'checked' : ''}> All of the ticked protocols are needed (leave unticked if any one of them is enough)</label>` : ''}<div class="sm muted">This applies to every variant and is saved as soon as you tick it.</div></div>` : ''}</div>`;
+   ${p.rel ? `<div class="stack" style="flex-basis:100%"><div class="sm"><b>Which protocol does the sample come from?</b></div>${opts.length ? `<div class="line" style="flex-wrap:wrap">${opts.map(q => `<label class="ck sm"><input type="checkbox" data-c="preFrom" data-p="${q.id}" ${from.includes(q.id) ? 'checked' : ''}> ${e(q.name)}</label>`).join('')}</div>` : '<div class="hint">There is no other protocol to choose yet. Create the earlier protocol, then come back and tick it here.</div>'}${srcs(p).filter(q => outsOf(q).length).map(q => `<label class="sm">From ${e(q.name)} it uses <select data-c="preUse" data-p="${q.id}"><option value="">any part</option>${outsOf(q).map(o => `<option ${(p.uses || {})[q.id] === o ? 'selected' : ''}>${e(o)}</option>`).join('')}</select></label>`).join('')}${from.length > 1 ? `<label class="ck sm"><input type="checkbox" data-c="preAll" ${p.all ? 'checked' : ''}> All of the ticked protocols are needed (leave unticked if any one of them is enough)</label>` : ''}<div class="sm muted">This applies to every variant and is saved as soon as you tick it.</div></div>` : ''}</div>`;
 }
 function walk(p, parent, out = []) { for (const n of kids(p, parent)) { out.push(n); walk(p, n.id, out); } return out; }
 
@@ -380,7 +397,7 @@ const stOf = (x, t, m) => { const s = runOf(x, t, m); return s ? (s.doneAt ? 'do
 const sess = id => DB.sessions.find(s => s.id === id);
 function newSession(projId, exp, target, mice, nodeId, revN, by) {
   const x = X(exp), p = P(x.proto), n = p.nodes.find(q => q.id === nodeId), r = n.revs.find(q => q.n === revN) || cur(n);
-  const s = { id: nid(), proj: projId, exp, target: target || '', mice, proto: p.id, node: n.id, pname: p.name, label: vname(p, n), rev: r.n, steps: r.steps.map(q => { const z = { ...q, reagent: q.reagent === '@target' ? (x.treag && x.treag[target]) || '' : q.reagent, checks: [...q.checks], more: (q.more || []).map(y => ({ ...y })) }; z.t = lbl(z); return z; }), ticks: {}, stepIdx: 0, waitStart: null, notes: [], startedAt: now(), doneAt: null, by };
+  const s = { id: nid(), proj: projId, exp, target: target || '', mice, proto: p.id, node: n.id, pname: p.name, label: vname(p, n), rev: r.n, steps: r.steps.map(q => { const z = { ...q, reagent: q.reagent === '@target' ? (x.treag && x.treag[target]) || '' : q.reagent, checks: [...q.checks], more: (q.more || []).map(y => ({ ...y })), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).map(y => ({ ...y })) }, outs: [...(q.outs || [])] }; z.t = lbl(z); return z; }), ticks: {}, stepIdx: 0, waitStart: null, notes: [], startedAt: now(), doneAt: null, by };
   DB.sessions.push(s); return s;
 }
 
@@ -479,6 +496,7 @@ V.today = () => {
    ${open ? sessPanel(open) : ''}
   </div><div class="stack">
    ${lowList().length ? `<div class="card" style="border-color:var(--bad)"><div class="line"><b class="grow">Reagents running low</b><button class="lnk" data-a="tab" data-k="reag">Open Reagents</button></div><div class="sm">${lowList().map(r => e(r.name) + ' (' + fmtV(stock(r).left, r.unit) + ' left)').join(' · ')}</div></div>` : ''}
+   ${dueCard()}
    <div class="card"><h2>What fits while you wait</h2>
     <div class="line"><label class="fld" for="freeMin">Free time</label><input type="number" id="freeMin" min="5" step="5" value="${F}" data-c="free" style="width:84px"><span class="sm muted">minutes${waits[0] && S.freeMin == null ? `, taken from the ${e(X(waits[0].s.exp).name)} incubation` : ''}</span></div>
     ${fits.length ? fits.map(f => `<div class="fit"><b>${e(f.t)}</b><span class="m">${dur(f.m)}</span><span class="sub">${e(f.sub)}</span></div>`).join('') : '<div class="hint">Nothing outstanding fits in that window.</div>'}</div>
@@ -487,6 +505,24 @@ V.today = () => {
    <div><h3 style="margin:2px 0 8px">This week's target</h3><div class="stack">${tg.length ? tg.map(t => tCard(t)).join('') : '<div class="card hint">No target agreed for this week. Propose one under Targets.</div>'}</div></div>
   </div></div>`;
 };
+/* repeats that have come due: a round is due for a sample once the round before it was done long enough ago */
+function dueList() {
+  const out = [], day0 = t => new Date(t).setHours(0, 0, 0, 0);
+  for (const x of projExps()) {
+    if (!x.sched || !x.targets) continue;
+    for (let k = 1; k < x.targets.length; k++) {
+      const t = x.targets[k], pt = x.targets[k - 1], due = [], later = [];
+      for (const m of proj().samples) { if (stOf(x.id, t, m.id) !== 'todo' || stOf(x.id, pt, m.id) !== 'done') continue; const at = day0(runOf(x.id, pt, m.id).doneAt) + (x.sched.days || 0) * DAY; (at <= now() ? due : later).push({ m: m.id, at }); }
+      if (due.length || later.length) out.push({ x, t, due, later });
+    }
+  }
+  return out;
+}
+function dueCard() {
+  const L = dueList(); if (!L.length) return '';
+  return `<div class="card"><h2>Repeats</h2>${L.map(q => { const first = Math.min(...q.due.map(d => d.at)), next = Math.min(...q.later.map(d => d.at));
+    return `<div class="line sm" style="flex-wrap:wrap"><span class="grow"><b>${e(q.x.name)} ${e(q.t)}</b><br>${q.due.length ? `<span style="color:var(--warn)">${q.due.length} sample${q.due.length === 1 ? '' : 's'} due${first < now() - DAY ? ' since ' + dt(first) : ' today'}</span>` : ''}${q.due.length && q.later.length ? ' · ' : ''}${q.later.length ? `<span class="muted">${q.later.length} more from ${dt(next)}</span>` : ''}</span>${q.due.length ? `<button class="btn sm pri" data-a="dueOpen" data-x="${q.x.id}" data-t="${e(q.t)}">Open</button>` : ''}</div>`; }).join('')}</div>`;
+}
 function fitList(F, skip) {
   const out = [];
   DB.backlog.filter(b => !b.done && b.m <= F).forEach(b => out.push({ t: b.text, m: b.m, sub: 'Backlog task' }));
@@ -589,10 +625,10 @@ V.protos = () => {
     det = `<div class="hdr"><button class="back" data-a="back">← All protocols</button><div class="name">${e(p.name)}${inProj(p) ? flag('ok', 'In ' + proj().name) : ''}</div>
       <div class="who">Created by ${e(users[p.by].name)} · used in: ${e(usedIn(p))} · shared with everyone in the lab</div>
       <div class="who">${e(ptypeLine(p))}</div>
-      ${p.ethics ? `<div class="who">Ethics approval: <span class="mono">${e(p.ethics)}</span></div>` : ''}${p.notes ? `<div class="who">Notes: ${e(p.notes)}</div>` : ''}
+      ${p.ethics ? `<div class="who">Ethics approval: <span class="mono">${e(p.ethics)}</span></div>` : ''}${p.notes ? `<div class="who">Notes: ${e(p.notes)}</div>` : ''}${schedTxt(p.sched) ? `<div class="who">${e(schedTxt(p.sched))}. In a study, each repeat is its own round.</div>` : ''}
       <div class="chips">${walk(p, null).map(q => `<button class="chip ${q === n ? 'view' : ''} ${isLeaf(p, q) ? '' : 'old'}" data-a="selNode" data-n="${q.id}"><span class="mono">${vlabel(p, q)}</span>${q.name === 'Standard' ? '' : ' ' + e(q.name)}</button>`).join('')}</div>
       <div class="who"><span class="mono">${e(vname(p, n))}</span> · rev ${r.n} of ${cur(n).n} · ${dur(tot(r.steps))} in total · ${dur(hands(r.steps))} hands-on · longest hands-free stretch ${dur(maxW(r.steps))}</div>
-      ${S.edit ? '' : `<div class="line">${inProj(p) || !proj() ? '' : `<button class="btn sm pri" data-a="addProj">Add to ${e(proj().name)}</button>`}${leaf && isCur ? `<button class="btn sm ${inProj(p) ? 'pri' : ''}" data-a="edStart">${r.steps.length ? 'Edit steps' : 'Build steps'}</button><button class="btn sm" data-a="split">Split into sub-variants</button>` : ''}<button class="btn sm" data-a="addVar">Add a variant</button><button class="btn sm" data-a="print">Print view</button></div>`}</div><div class="body">${body}</div>`;
+      ${S.edit ? '' : `<div class="line">${inProj(p) || !proj() ? '' : `<button class="btn sm pri" data-a="addProj">Add to ${e(proj().name)}</button>`}${leaf && isCur ? `<button class="btn sm ${inProj(p) ? 'pri' : ''}" data-a="edStart">${r.steps.length ? 'Edit steps' : 'Build steps'}</button><button class="btn sm" data-a="split">Split into sub-variants</button>` : ''}<button class="btn sm" data-a="addVar">Add a variant</button><button class="btn sm" data-a="print">Print view</button>${canLab() ? '<button class="btn sm" data-a="delProto">Delete protocol</button>' : ''}</div>`}</div><div class="body">${body}</div>`;
   }
   return `<div class="split ${p ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools"><button class="btn pri" data-a="newProto">Create new protocol</button><button class="btn" data-a="impPick">Import from a file</button><input type="file" id="impFile" accept=".json,.md,.txt,application/json,text/markdown,text/plain" hidden></div><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
 };
@@ -807,6 +843,14 @@ function modalHTML() {
      <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn" data-a="start" data-force="1">Start anyway</button></div>`;
   }
   if (m.type === 'imp') h = importHTML(m);
+  if (m.type === 'delProto') {
+    const p = P(S.selProto), xs = DB.exps.filter(x => x.proto === p.id), ns = DB.sessions.filter(q => q.proto === p.id).length, lead = feeds(p);
+    h = `<h2>Delete ${e(p.name)}?</h2>
+     <div class="todo"><span>${xs.length ? `It is used by ${xs.length} experiment${xs.length === 1 ? '' : 's'} in the studies you can see${ns ? `, with ${ns} bench session${ns === 1 ? '' : 's'} recorded` : ''}. Those experiments keep working and keep their records, but the protocol leaves the library and can no longer be added to a study.` : isSup() ? 'No study uses it. It will be removed completely, with all its variants and revisions.' : 'You cannot see every study, so it is taken out of the library but kept in the background in case a study still uses it.'}</span></div>
+     ${lead.length ? `<div class="hint">${e(names(lead))} will no longer list it as an earlier step.</div>` : ''}
+     <div class="hint">This cannot be undone from the site.</div>
+     <div class="foot"><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="delProtoYes">Delete protocol</button></div>`;
+  }
   if (m.type === 'newProto') {
     h = `<h2>Create new protocol</h2><label>Name<input type="text" id="npName" placeholder="e.g. Oil Red O staining"></label>
      <div class="hint">That is all it needs. You build the steps next, and it joins the lab library where everyone in the lab can see it and add it to their project.</div>
@@ -903,11 +947,13 @@ function syncEdit() {
   S.edit.steps = [...document.querySelectorAll('#edRows .blk')].map((b, i) => {
     const o = S.edit.steps[i], g = f => b.querySelector('[data-f=' + f + ']'), q = { ...o, t: g('t').value.trim(), reagent: g('reagent').value, rname: g('reagent').value === '@name' && g('rname') ? g('rname').value.trim() : '', vol: +g('vol').value || 0, unit: g('unit').value, per: g('per').value, note: g('note').value.trim(), checks: [...b.querySelectorAll('[data-f=chk]')].map(c => c.value.trim()),
       conc: g('conc').value.trim(), temp: g('temp').value.trim(), equip: g('equip').value.trim(), until: g('until').value.trim(), mMax: g('mMax') ? +g('mMax').value || 0 : 0,
-      more: [...b.querySelectorAll('.more')].map(r => { const h = f => r.querySelector('[data-f=' + f + ']').value, nm = h('xname').trim(), hit = DB.reagents.find(z => low(z.name) === low(nm)); return { reagent: hit ? hit.id : '@name', rname: nm, vol: +h('xvol') || 0, unit: h('xunit'), conc: h('xconc').trim() }; }) };
+      more: [...b.querySelectorAll('.more')].map(r => { const h = f => r.querySelector('[data-f=' + f + ']').value, nm = h('xname').trim(), hit = DB.reagents.find(z => low(z.name) === low(nm)); return { reagent: hit ? hit.id : '@name', rname: nm, vol: +h('xvol') || 0, unit: h('xunit'), conc: h('xconc').trim() }; }),
+      prog: { n: g('gn') ? Math.max(0, Math.round(+g('gn').value || 0)) : 0, stages: [...b.querySelectorAll('.stage')].map(r => ({ temp: r.querySelector('[data-f=gtemp]').value.trim(), time: r.querySelector('[data-f=gtime]').value.trim() })) },
+      outs: [...b.querySelectorAll('[data-f=out]')].map(c => c.value.trim()) };
     if (o.type === 'wash') { q.reps = Math.max(1, +g('reps').value || 1); q.each = +g('each').value || 0; q.m = q.reps * q.each; q.w = false; } else { q.m = +g('m').value || 0; q.w = g('w').checked; }
     if (o.type === 'other') q.kind = g('kind').value; return q;
   });
-  S.edit.note = val('edNote'); S.edit.name = val('edName'); S.edit.pnotes = val('edNotes'); S.edit.ethics = val('edEthics');
+  S.edit.note = val('edNote'); S.edit.name = val('edName'); S.edit.pnotes = val('edNotes'); S.edit.ethics = val('edEthics'); S.edit.schedN = val('edSchedN'); S.edit.schedD = val('edSchedD');
 }
 const mErr = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; };
 const A = {
@@ -1007,19 +1053,25 @@ const A = {
   blDel: d => { DB.backlog = DB.backlog.filter(b => b.id !== d.id); },
   selProto: d => { S.selProto = d.p; S.selNode = null; S.viewRev = null; S.edit = null; S.modal = null; }, selNode: d => { S.selNode = d.n; S.viewRev = null; S.edit = null; },
   rev: d => { S.viewRev = d.n ? +d.n : null; },
-  edStart: () => { const n = P(S.selProto).nodes.find(q => q.id === S.selNode); const p = P(S.selProto); S.edit = { steps: cur(n).steps.map(q => ({ ...blank(q.type, q.kind), ...q, checks: [...q.checks], more: (q.more || []).map(x => ({ ...x })) })), note: '', name: p.name, pnotes: p.notes || '', ethics: p.ethics || '' }; },
+  edStart: () => { const n = P(S.selProto).nodes.find(q => q.id === S.selNode); const p = P(S.selProto); S.edit = { steps: cur(n).steps.map(q => ({ ...blank(q.type, q.kind), ...q, checks: [...q.checks], more: (q.more || []).map(x => ({ ...x })), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).map(x => ({ ...x })) }, outs: [...(q.outs || [])] })), note: '', name: p.name, pnotes: p.notes || '', ethics: p.ethics || '', schedN: (p.sched && p.sched.n) || '', schedD: (p.sched && p.sched.days) || '' }; },
   edAdd: d => { syncEdit(); S.edit.steps.push(blank(d.t)); }, edDel: d => { syncEdit(); S.edit.steps.splice(+d.i, 1); }, edCancel: () => S.edit = null,
   edUp: d => { syncEdit(); const a = S.edit.steps, i = +d.i; if (i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]]; }, edDown: d => { syncEdit(); const a = S.edit.steps, i = +d.i; if (i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]]; },
   moreAdd: d => { syncEdit(); const q = S.edit.steps[+d.i]; q.more = [...(q.more || []), { reagent: '@name', rname: '', vol: 0, unit: 'µL', conc: '' }]; },
   moreDel: d => { syncEdit(); S.edit.steps[+d.i].more.splice(+d.j, 1); },
+  stageAdd: d => { syncEdit(); const q = S.edit.steps[+d.i]; q.prog = { n: (q.prog && q.prog.n) || 0, stages: [...((q.prog && q.prog.stages) || []), { temp: '', time: '' }] }; },
+  stageDel: d => { syncEdit(); S.edit.steps[+d.i].prog.stages.splice(+d.j, 1); },
+  outAdd: d => { syncEdit(); const q = S.edit.steps[+d.i]; q.outs = [...(q.outs || []), '']; },
+  outDel: d => { syncEdit(); S.edit.steps[+d.i].outs.splice(+d.j, 1); },
   ckAdd: d => { syncEdit(); S.edit.steps[+d.i].checks.push(''); }, ckDel: d => { syncEdit(); S.edit.steps[+d.i].checks.splice(+d.j, 1); },
   edSave: () => {
-    syncEdit(); const p = P(S.selProto), n = p.nodes.find(q => q.id === S.selNode), first = !cur(n).steps.length, steps = S.edit.steps.map(q => ({ ...q, checks: q.checks.filter(Boolean), more: (q.more || []).filter(x => x.rname) }));
+    syncEdit(); const p = P(S.selProto), n = p.nodes.find(q => q.id === S.selNode), first = !cur(n).steps.length, steps = S.edit.steps.map(q => ({ ...q, checks: q.checks.filter(Boolean), more: (q.more || []).filter(x => x.rname), prog: { n: (q.prog && q.prog.n) || 0, stages: ((q.prog && q.prog.stages) || []).filter(x => x.temp || x.time) }, outs: (q.outs || []).filter(Boolean) }));
     const nm = (S.edit.name || '').trim(), renamed = nm !== p.name, norm = a => canon(a.map(q => ({ ...blank(q.type, q.kind), ...q, rname: q.reagent === '@name' ? q.rname || '' : '' }))), same = norm(steps) === norm(cur(n).steps);
     const pn = (S.edit.pnotes || '').trim(), et = (S.edit.ethics || '').trim(), notesCh = pn !== (p.notes || ''), ethCh = et !== (p.ethics || '');
-    const nameOnly = (renamed || notesCh || ethCh) && same && !S.edit.note;      // name, notes or ethics number only: no new revision is needed for that
+    const sn = Math.min(60, Math.max(0, Math.round(+S.edit.schedN || 0))), sd = Math.max(0, Math.round(+S.edit.schedD || 0)), sc = sn > 1 ? { n: sn, days: sd } : null, schCh = canon(sc) !== canon(p.sched || null);
+    const nameOnly = (renamed || notesCh || ethCh || schCh) && same && !S.edit.note;      // name, notes or ethics number only: no new revision is needed for that
     if (!nm) { $('#edErr').textContent = 'Give the protocol a name.'; return false; }
     if (notesCh) { if (pn) p.notes = pn; else delete p.notes; plog(p, 'Protocol notes changed'); }
+    if (schCh) { if (sc) p.sched = sc; else delete p.sched; plog(p, sc ? 'Schedule set: ' + schedTxt(sc).toLowerCase() : 'Schedule removed'); }
     if (ethCh) { if (et) p.ethics = et; else delete p.ethics; plog(p, et ? 'Ethics approval number set to ' + et : 'Ethics approval number removed'); }
     const noName = steps.find(q => q.reagent === '@name' && !q.rname);
     const bad = !nm ? 'Give the protocol a name.' : noName ? 'Type the name of the reagent, or choose one from the list.' : nameOnly ? '' : !steps.length ? 'Add at least one step.' : !first && !S.edit.note ? 'Say what changed and why. It is kept in the history.' : ''; if (bad) { $('#edErr').textContent = bad; return false; }
@@ -1028,7 +1080,7 @@ const A = {
     if (first) { cur(n).steps = steps; cur(n).at = now(); } else n.revs.push(mkRev(cur(n).n + 1, now(), S.user, S.edit.note, steps)); S.edit = null; toast('Saved as rev ' + cur(n).n + (first ? '.' : '. Runs already done keep the revision they used.'));
   },
   lib: () => S.modal = { type: 'lib' }, print: () => S.modal = { type: 'print' }, printNow: () => { window.print(); return false; },
-  addProj: d => { const p = P(d.p || S.selProto); if (!proj()) return false; if (!projExps().some(q => q.proto === p.id)) { const x = { id: nid(), name: p.name, proto: p.id, proj: S.project }; DB.exps.push(x); proj().exps.push(x.id); } toast(p.name + ' added to ' + proj().name + '. Tick which samples get it under Study plan.'); },
+  addProj: d => { const p = P(d.p || S.selProto); if (!proj()) return false; if (!projExps().some(q => q.proto === p.id)) { const x = { id: nid(), name: p.name, proto: p.id, proj: S.project }; if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; } DB.exps.push(x); proj().exps.push(x.id); } toast(p.name + ' added to ' + proj().name + '. Tick which samples get it under Study plan.'); },
   newStudy: () => S.modal = { type: 'newStudy' },
   newStudySave: () => {
     const nm = clean(val('nsName')); if (!nm) return mErr('Give the study a name.'); const id = nid();
@@ -1051,7 +1103,8 @@ const A = {
     const p = proj(); p.exps = p.exps.filter(id => id !== d.x); DB.exps = DB.exps.filter(x => x.id !== d.x); if (S.planX === d.x) S.planX = ''; if (S.selExp === d.x) S.selExp = undefined;
   },
   tgAdd: d => { const x = X(d.x), t = clean(val('tg' + d.x)), r = val('tr' + d.x); if (!t || x.targets.includes(t)) return false; x.targets.push(t); if (r) (x.treag = x.treag || {})[t] = r; },
-  pxAdd: () => { const p = P(val('pxProto')); if (!p) return false; const ts = [...new Set(val('pxT').split(',').map(clean).filter(Boolean))], x = { id: nid(), name: clean(val('pxName')) || p.name, proto: p.id, proj: S.project }; if (ts.length) x.targets = ts; DB.exps.push(x); proj().exps.push(x.id); toast(x.name + ' added. Tick its samples in the grid below.'); },
+  pxAdd: () => { const p = P(val('pxProto')); if (!p) return false; const ts = [...new Set(val('pxT').split(',').map(clean).filter(Boolean))], x = { id: nid(), name: clean(val('pxName')) || p.name, proto: p.id, proj: S.project }; if (ts.length) x.targets = ts; else if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; }
+    DB.exps.push(x); proj().exps.push(x.id); toast(x.name + (x.sched ? ` added with ${x.targets.length} rounds. Tick its samples in the grid below.` : ' added. Tick its samples in the grid below.')); },
   asgCol: d => { const c = planCols()[+d.i], ks = proj().samples.map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   asgRow: d => { const ks = planCols().map(c => key(c.x.id, c.t, d.m)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   dDeal: () => { if (!canLab()) return false; const k = mKey(S.dOff); deal(k, mKey(S.dOff - 1)); toast(mName(k) + ' dealt out.'); },
@@ -1070,6 +1123,13 @@ const A = {
   },
   rgAdd: d => { R(d.r).bottles++; toast('One more bottle of ' + R(d.r).name + ' recorded.'); },
   impPick: () => { $('#impFile').click(); return false; },
+  delProto: () => { if (!canLab()) return false; S.modal = { type: 'delProto' }; },
+  delProtoYes: () => {
+    const p = P(S.selProto); if (!p || !canLab()) return false;
+    DB.protocols = DB.protocols.filter(q => q !== p);
+    if (!(isSup() && !DB.exps.some(x => x.proto === p.id))) { p.deleted = { at: now(), by: S.user }; DB.gone.push(p); }
+    S.selProto = null; S.selNode = null; S.edit = null; S.modal = null; toast(p.name + ' deleted.');
+  },
   impSave: () => {
     const m = S.modal, chosen = m.list.filter((_, i) => m.pick.has(i)); if (!chosen.length) return mErr('Tick at least one protocol.');
     const made = new Map(), note = 'Imported from ' + m.file;
@@ -1078,11 +1138,12 @@ const A = {
       const nodes = p.variants.map((v, i) => ({ id: id + (i ? '-' + i : '-s'), parent: null, name: v.name, revs: [mkRev(1, now(), S.user, note + (p.source ? ' (' + p.source + ')' : ''), v.steps.map(q => {
         const link = z => { const hit = z.rn && DB.reagents.find(r => low(r.name) === low(z.rn)); if (z.rn) { z.reagent = hit ? hit.id : '@name'; z.rname = z.rn; } delete z.rn; return z; };
         return link({ ...q, checks: [...q.checks], more: q.more.map(x => link({ reagent: '', rname: '', ...x })) }); }))] }));
-      const rec = { id, name, by: S.user, nodes }; if (p.notes) rec.notes = p.notes; if (p.ethics) rec.ethics = p.ethics; DB.protocols.push(rec); made.set(low(p.name), rec); p.rec = rec;
+      const rec = { id, name, by: S.user, nodes }; if (p.notes) rec.notes = p.notes; if (p.ethics) rec.ethics = p.ethics; if (p.sched) rec.sched = p.sched; DB.protocols.push(rec); made.set(low(p.name), rec); p.rec = rec;
     }
     for (const p of chosen) {                       // "needs a sample from" is worked out once everything is in
       const from = p.prev.map(n => made.get(low(n)) || DB.protocols.find(q => low(q.name) === low(n))).filter(q => q && q !== p.rec).map(q => q.id);
-      if (p.rel || from.length) { p.rec.rel = true; p.rec.from = [...new Set(from)]; if (p.all && p.rec.from.length > 1) p.rec.all = true; }
+      if (p.rel || from.length) { p.rec.rel = true; p.rec.from = [...new Set(from)]; if (p.all && p.rec.from.length > 1) p.rec.all = true;
+        const u = {}; for (const [n, lab] of p.uses) { const q = made.get(low(n)) || DB.protocols.find(z => low(z.name) === low(n)); if (q && p.rec.from.includes(q.id)) u[q.id] = lab; } if (Object.keys(u).length) p.rec.uses = u; }
       delete p.rec;
     }
     const first = made.values().next().value; S.selProto = first.id; S.selNode = first.nodes[0].id; S.viewRev = null; S.edit = null; S.modal = null;
@@ -1121,6 +1182,7 @@ const A = {
     if (!cur(n).steps.length) { toast('This protocol has no steps yet. Build them under Protocols first.'); return false; }
     const s = newSession(t.proj, i.exp, i.target, [...S.tpick.set], n.id, cur(n).n, S.user); buildIdx(); S.tpick = null; S.openSession = s.id; S.tab = 'today'; toast('Bench session started with ' + s.mice.length + ' samples.');
   },
+  dueOpen: d => { const q = dueList().find(z => z.x.id === d.x && z.t === d.t); if (!q) return false; S.tab = 'exps'; S.selExp = d.x; S.selTarget = d.t; S.variant = null; S.picked = new Set(q.due.map(z => z.m)); },
   pickT: () => { const x = X(S.selExp), t = x.targets ? S.selTarget : ''; S.picked = new Set(weekTargetMice(x.id, t)); },
   agree: d => { const t = DB.targets.find(q => q.id === d.id); t.status = 'agreed'; t.note = val('tn' + t.id); notice(t.user, `Prof Kaur agreed your target for ${wkLabel(t.week)}: ${tName(t)}.`); toast('Agreed. ' + users[t.user].name + ' has been told.'); },
   change: d => { const t = DB.targets.find(q => q.id === d.id), c = val('tn' + t.id); if (!c) { toast('Add a comment saying what to change.'); return false; } t.status = 'change'; t.note = c; notice(t.user, `Prof Kaur asked for a change to your target (${tName(t)}): ${c}`); },
@@ -1147,8 +1209,9 @@ document.addEventListener('change', ev => {
   if (c === 'dOff') S.dOff = +el.value;
   if (c === 'variant') S.variant = el.value;
   if (c === 'tick') { const s = sess(el.dataset.id); if (s) s.ticks[el.dataset.k] = el.checked; }
-  if (c === 'preOn' || c === 'preFrom' || c === 'preAll') {
+  if (c === 'preOn' || c === 'preFrom' || c === 'preAll' || c === 'preUse') {
     syncEdit(); const p = P(S.selProto); if (!p) return;
+    if (c === 'preUse') { const u = { ...(p.uses || {}) }; if (el.value) u[el.dataset.p] = el.value; else delete u[el.dataset.p]; if (Object.keys(u).length) p.uses = u; else delete p.uses; } else
     if (c === 'preAll') { if (el.checked) p.all = true; else delete p.all; } else
     if (c === 'preOn') { if (el.checked) { p.rel = true; p.from = p.from || []; } else { delete p.rel; delete p.from; } }
     else { const id = el.dataset.p; p.from = (p.from || []).filter(x => x !== id); if (el.checked) p.from.push(id); }

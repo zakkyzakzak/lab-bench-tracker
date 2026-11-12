@@ -77,7 +77,7 @@ service cloud.firestore {
     // Lab-wide records shared by everyone in the lab.
     match /protocols/{id} {
       allow read, create, update: if isMember();
-      allow delete: if isSup() || (isMember() && resource.data.by == email());
+      allow delete: if isSup() || isAdmin() || (isMember() && resource.data.by == email());
     }
     match /reagents/{id} {
       allow read, create, update: if isMember();

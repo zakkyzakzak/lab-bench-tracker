@@ -1,11 +1,11 @@
-# Handover: turn my thesis methods into Lab Bench Tracker protocols (format version 2)
+# Handover: turn my thesis methods into Lab Bench Tracker protocols (format version 3)
 
 You have already read my MSc submissions, including the methods. I use a web app called
 Lab Bench Tracker to run protocols at the bench step by step. I want every method I used turned
 into a protocol the app can import, so I do not have to type them in by hand.
 
 **If you already produced a version 1 file:** the app has been changed in response to your first
-feedback file. Please regenerate the JSON using the new fields below ("New in version 2"), so that
+feedback file. Please regenerate the JSON using the new fields below ("New since version 1"), so that
 values you previously had to push into `description` or `comment` go into proper fields.
 
 Please produce **two files**:
@@ -29,7 +29,7 @@ the feedback file. Do not bend the science to fit the format.
 - Keep the order exactly as performed.
 - Output valid JSON only in the first file: no comments, no trailing commas, double quotes.
 
-## New in version 2
+## New since version 1
 
 | What | Field | Where |
 |---|---|---|
@@ -45,6 +45,10 @@ the feedback file. Do not bend the science to fit the format.
 | Notes for the whole protocol | `notes` | protocol |
 | Ethics approval number | `ethicsApproval` | protocol |
 | Needing two earlier protocols at once | `previousNeedsAll` | protocol |
+| A protocol repeated on a schedule | `schedule` | protocol |
+| A programmed run or thermal cycle | `cycle` | any step |
+| A step that splits the sample | `produces` | any step |
+| Which piece a later protocol starts from | `previousUses` | protocol |
 | Seconds, and long holds | `minutes` may be a decimal (0.5) or large (10080 shows as 7 days) | incubation, other |
 
 ## How the app thinks about a protocol
@@ -75,7 +79,7 @@ the feedback file. Do not bend the science to fit the format.
 ```json
 {
   "format": "lab-bench-protocols",
-  "version": 2,
+  "version": 3,
   "protocols": [
     {
       "name": "Example reaction",
@@ -157,6 +161,8 @@ A protocol with variants uses `variants` instead of `steps`:
 | `requiresPrevious` | no | `true` if it starts from a sample another protocol has processed. |
 | `previousProtocols` | no | Names of the protocol(s) the sample comes from. |
 | `previousNeedsAll` | no | `true` if all of `previousProtocols` are needed; otherwise any one is enough. |
+| `previousUses` | no | Which output of an earlier protocol this one starts from, as `{ "Earlier protocol name": "output label" }`. The label must match one of that protocol's `produces` labels exactly. |
+| `schedule` | no | For a protocol repeated on the same samples or animals: `{ "repeats": 6, "everyDays": 7 }`. In a study the app then makes one round per repeat ("Week 1" to "Week 6") and shows when the next round is due. Do not add a "repeat this" step. For "three times a week" use `everyDays: 2` and say so in `notes`. If the number of repeats is not stated, leave `schedule` out and report it. |
 | `steps` | yes, unless `variants` | The ordered steps. |
 | `variants` | no | List of `{ "name", "steps" }`. Use instead of `steps`. |
 
@@ -176,6 +182,8 @@ A protocol with variants uses `variants` instead of `steps`:
 | `components` | all | Further reagents in the same step: a list of `{ "reagent", "amount", "unit", "concentration" }`. Put the main one in `reagent` and the rest here. Use this for reaction mixes and anything made of several parts; do not invent a made-up mix name any more. |
 | `temperature` | all | Free text: `"37 °C"`, `"On ice"`, `"Room temperature"`, `"-80 °C"`, `"37 °C, 5% CO2"`. |
 | `equipment` | all | The instrument or equipment named for the step. |
+| `cycle` | all | A programmed run: `{ "cycles": 40, "stages": [ { "temperature": "95 °C", "time": "15 s" }, { "temperature": "60 °C", "time": "1 min" } ] }`. Leave `cycles` out if it runs once or the number is not stated. Use on one `Instrument run` step. |
+| `produces` | all | When the step splits the sample or makes something later protocols start from: a list of short labels, for example `["Formalin-fixed piece", "RNAlater piece", "Snap-frozen piece"]`. |
 | `times` | wash | How many washes. Leave out if not stated. |
 | `minutesEach` | wash | Minutes per wash. Leave out if not stated. |
 | `minutes` | incubation, other | Duration in minutes. Decimals allowed (30 seconds is 0.5). Leave out if not stated. For "overnight" use 960 and say "overnight" in `description`. |
@@ -190,9 +198,8 @@ A protocol with variants uses `variants` instead of `steps`:
 The app still has no proper place for the following. Use `description`, `comment` or protocol
 `notes`, and add an entry to the feedback file each time so they can be prioritised:
 
-- a protocol repeated on a schedule (weekly dosing, measurements three times a week);
-- a repeated cycle of steps (thermal cycling): write it as one `Instrument run` step;
-- a step that splits a sample into several streams for different later protocols;
+- how much of each produced piece is left for a given sample;
+- a schedule that is not evenly spaced, or has no fixed number of repeats;
 - thresholds that should raise an alert (welfare limits) rather than be ticked;
 - a range for an amount (20-50 mL);
 - formulas, software and replicate or image counts as their own fields;
@@ -203,7 +210,7 @@ The app still has no proper place for the following. Use `description`, `comment
 Use exactly these headings so the developer can work through it.
 
 ```markdown
-# Lab Bench Tracker: protocol format feedback (version 2)
+# Lab Bench Tracker: protocol format feedback (version 3)
 
 ## Summary
 - Protocols written: <number> (<number> steps)
@@ -211,7 +218,7 @@ Use exactly these headings so the developer can work through it.
 - Protocols that fitted cleanly: <names>
 - Protocols that needed workarounds: <names>
 
-## What version 2 fixed, and what it did not
+## What the new version fixed, and what it did not
 For each misfit in the first feedback file: fixed / partly fixed / not fixed, in one line.
 
 ## Recurring misfits
