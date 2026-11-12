@@ -137,6 +137,13 @@ service cloud.firestore {
       allow read: if isMember();
       allow write: if isSup() || (isMember() && inProject(pid));
     }
+    // A request to hand a study's Drive folder to a new owner. Only admins and supervisors may ask;
+    // the lab's script carries it out with the owner's own access.
+    match /driveRequests/{id} {
+      allow create: if (isAdmin() || isSup()) && request.resource.data.by == email()
+        && request.resource.data.keys().hasOnly(['proj', 'to', 'by', 'at']);
+      allow read, update, delete: if false;
+    }
     match /notices/{id} {
       allow read: if isMember() && (resource.data.to == email() || isSup());
       allow create: if isMember() && request.resource.data.by == email();

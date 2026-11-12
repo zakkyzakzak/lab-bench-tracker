@@ -915,6 +915,22 @@ V.targets = () => {
   return `<div class="cols"><div class="stack">${progHTML()}${up.map(card).join('') || '<div class="card hint">Nothing planned from this week on.</div>'}${past.length ? '<h3>Earlier weeks</h3>' + past.map(card).join('') : ''}${(() => { if (sup || !proj()) return ''; const o = DB.targets.filter(t => t.proj === S.project && t.user !== S.user && t.status !== 'change' && t.week >= WK - 7 * DAY).sort((a, b) => a.week - b.week); return o.length ? '<h3>Teammates in this study</h3><div class="hint">You can see these, including ones still waiting for Prof Kaur, but only their owner can change them.</div>' + o.map(t => tCard(t)).join('') : ''; })()}</div><div class="stack">${right}</div></div>`;
 };
 
+/* ---------------- Google Drive: a folder per study, uploads, hand-over of ownership ---------------- */
+async function driveUpload(file, path) {
+  if (file.size > 20e6) throw new Error('the file is larger than 20 MB');
+  const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('the file could not be read')); r.readAsDataURL(file); });
+  const resp = await fetch(DB.lab.uploadUrl, { method: 'POST', body: JSON.stringify({ token: await B.idToken(), project: S.project, path, name: file.name, type: file.type, data }) });
+  const j = await resp.json(); if (!j.ok) throw new Error(j.error || 'the upload was refused'); return j;
+}
+function driveCard() {
+  const url = DB.lab.uploadUrl || '';
+  return `<div class="card"><h2>Google Drive</h2><div class="hint">The lab's mail sheet can keep a Drive folder for every study, shared with its members and supervisors, with a spreadsheet copy of everything typed into the tracker. Switch it on in the sheet (menu Lab mail, Switch on Google Drive). Files then belong to the Google account that owns that sheet.</div>
+    ${DB.projects.map(p => `<div class="line sm"><b class="grow">${e(p.name)}</b>${p.drive && safeUrl(p.drive.url) ? `<a class="lnk" href="${e(p.drive.url)}" target="_blank" rel="noopener noreferrer">Folder</a>${safeUrl(p.drive.sheetUrl) ? ` <a class="lnk" href="${e(p.drive.sheetUrl)}" target="_blank" rel="noopener noreferrer">Data sheet</a>` : ''}` : '<span class="muted">no folder yet</span>'}</div>${p.drive && p.drive.ownerMsg ? `<div class="sm muted">${e(p.drive.ownerMsg)}</div>` : ''}`).join('') || '<div class="hint">You are not in any study, so there is nothing to list here.</div>'}
+    <h3>Uploads from the tracker</h3><div class="hint">To upload photos and result files from inside the tracker, deploy the sheet's script as a web app and paste its address here (see apps-script/SETUP.md, section 7).</div>
+    <div class="line"><input type="url" id="upUrl" class="grow" value="${e(url)}" placeholder="https://script.google.com/macros/s/…/exec" aria-label="Web app address"><button class="btn sm" data-a="upUrlSave">Save</button><button class="btn sm" data-a="upTest" ${url ? '' : 'disabled'}>Test</button></div><span class="err" id="upErr"></span>
+    ${DB.projects.some(p => p.drive && p.drive.id) ? `<h3>Hand a study's folder to a new owner</h3><div class="hint">Makes someone else the owner of the folder and every file in it, for example Prof Kaur when you leave. You keep Editor access. Google only allows this between accounts in the same organisation, so it may be refused.</div>
+    <div class="line"><select id="ownProj" aria-label="Study">${DB.projects.filter(p => p.drive && p.drive.id).map(p => `<option value="${p.id}">${e(p.name)}</option>`).join('')}</select><select id="ownTo" aria-label="New owner">${allPeople().filter(u => u !== S.user).map(u => `<option value="${e(u)}">${e(nameOf(u))}</option>`).join('')}</select><button class="btn sm" data-a="ownAsk">Hand over ownership</button></div>` : ''}</div>`;
+}
 function mailCard() {
   const t = DB.notices.filter(n => n.test && n.to === S.user).sort(byAt).pop();
   return `<div class="card"><h2>Email notices</h2><div class="hint">Every notice in someone's Inbox is also emailed to their Wits address by the lab's mail sheet, which checks about once a minute. That includes the note a person gets when they are added to the lab, with the link to the tracker.</div>
@@ -941,7 +957,7 @@ V.lab = () => {
         <select id="newRole" aria-label="Role"><option value="members">Member</option><option value="supervisors">Supervisor</option></select>
         <button class="btn pri" data-a="addMember">Add</button></div><span class="err" id="memberErr"></span>` : ''}
     </div>
-    ${cl ? mailCard() : ''}${isAdmin() ? visitCard() : ''}
+    ${cl ? mailCard() : ''}${cl ? driveCard() : ''}${isAdmin() ? visitCard() : ''}
     <div class="card"><h2>Where the data lives</h2><div class="flow"><div><b>The website</b>The app code only. No samples, notes, protocols or results are in the code, so a public page gives nothing away.</div><div><b>Google sign-in</b>Each person signs in with their Wits account. The page is an empty shell until they do.</div><div><b>The lab database</b>All records, held in Johannesburg. Projects are open only to their members and supervisors; protocols, reagents and duties are shared by the whole lab.</div></div>
       <div class="hint">Result files are not stored here: each run keeps links to where its files are, for example in Google Drive.</div></div>
   </div><div class="stack"><h3>Projects and who can see them</h3>
@@ -1198,7 +1214,7 @@ function render() {
     <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.filter(t => t[0] !== 'monitor' || (proj() && proj().mon && proj().mon.on)).map(tabBtn).join('')}</div></div>
     <div class="navg lab ${inStudy ? '' : 'here'}"><div class="navh"><span class="navt">Whole lab</span><span class="sm muted">shared by everyone in ${e(labName)}</span></div><div class="tabs">${LAB_TABS.map(tabBtn).join('')}</div></div>
    </nav>
-   ${inStudy ? (proj() ? `<div class="scope study" data-pal="${pal}"><b>${e(proj().name)}</b><span>You are inside this study. What you add or change on this page belongs to ${e(proj().name)} only.</span></div>` : '')
+   ${inStudy ? (proj() ? `<div class="scope study" data-pal="${pal}"><b>${e(proj().name)}</b><span class="grow">You are inside this study. What you add or change on this page belongs to ${e(proj().name)} only.</span>${proj().drive && safeUrl(proj().drive.url) ? `<a class="btn sm" href="${e(proj().drive.url)}" target="_blank" rel="noopener noreferrer">Open the Google Drive folder for ${e(proj().name)}</a>${safeUrl(proj().drive.sheetUrl) ? `<a class="btn sm" href="${e(proj().drive.sheetUrl)}" target="_blank" rel="noopener noreferrer">Data sheet</a>` : ''}` : ''}</div>` : '')
      : `<div class="scope lab"><b>Whole lab</b><span>This page is shared. What you add or change here is seen and used by everyone in ${e(labName)}.</span></div>`}
    ${lock ? `<section class="lock"><h2>Last week's target was missed</h2><div>${e(tName(lock))}, week of ${wkLabel(lock.week)}: <b>${tDone(lock)} of ${tN(lock)}</b> done. Before you carry on, tell Prof Kaur what happened. She is notified as soon as you send it.</div>
      <div class="g3"><label for="exWhat">What happened<textarea id="exWhat" rows="3"></textarea></label><label for="exWhy">Why that meant the target was missed<textarea id="exWhy" rows="3"></textarea></label><label for="exPlan">Plan to catch up<textarea id="exPlan" rows="3"></textarea></label></div>
@@ -1257,7 +1273,7 @@ const A = {
     const em = low($('#newMember').value), role = $('#newRole').value;
     if (!WITS.test(em)) { $('#memberErr').textContent = 'Enter a Wits email address.'; return false; }
     const L = DB.lab; L.members = [...new Set([...(L.members || []), em])]; if (role === 'supervisors') L.supervisors = [...new Set([...sups(), em])];
-    notice(em, `${users[S.user].name} added you to the ${DB.lab.name || 'lab'} on Lab Bench Tracker, the lab's bench tracker. Sign in with this Wits address to get started.`); toast(em + ' added.');
+    notice(em, `${users[S.user].name} added you to the ${DB.lab.name || 'lab'} on Lab Bench Tracker, the lab's bench tracker. Sign in with this Wits address to get started.`); toast(em + ' added. The list is in order of email address, so look for it there rather than at the bottom.');
   },
   rmMember: d => { DB.lab.members = (DB.lab.members || []).filter(u => u !== d.em); toast(d.em + ' removed from the lab.'); },
   pickProj: d => { S.project = d.id; S.selMouse = null; S.picked.clear(); S.draft = newDraft(); S.tpick = null; S.selExp = undefined; S.planX = ''; },
@@ -1397,6 +1413,10 @@ const A = {
   anEnd: d => { S.modal = { type: 'anEnd', an: d.an }; },
   anEndSave: () => { const m = S.modal, day = val('aeDay'), why = [val('aeWhy'), val('aeNote')].filter(Boolean).join(': '); if (!day) return mErr('Choose the date.'); const r = anMk(m.an); r.end = day; r.why = why; S.modal = null; toast(m.an + ' marked as ended.'); },
   anUnend: d => { const r = anRec(d.an); if (r) { delete r.end; delete r.why; } },
+  upUrlSave: () => { const u = val('upUrl'); if (u && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) { $('#upErr').textContent = 'That is not a web app address. It starts with https://script.google.com/macros/s/ and ends with /exec.'; return false; } if (u) DB.lab.uploadUrl = u; else delete DB.lab.uploadUrl; toast(u ? 'Saved. Upload buttons now show wherever a file can be attached.' : 'Uploads from the tracker are off.'); },
+  upTest: () => { const el = $('#upErr'); el.textContent = 'Checking…'; fetch(DB.lab.uploadUrl).then(r => r.json()).then(j => { el.textContent = j && j.ok ? 'The web app answered. Uploads should work.' : 'The address answered, but not as expected.'; }, () => { el.textContent = 'No answer. Check the address, and that the web app is deployed for "Anyone".'; }); return false; },
+  ownAsk: () => { S.modal = { type: 'sure', a: 'ownDo', d: { p: val('ownProj'), to: val('ownTo') }, q: [`Hand the Drive folder for ${PR(val('ownProj'))?.name || ''} to ${nameOf(val('ownTo'))}?`, 'They become the owner of the folder and every file in it. You keep Editor access. This cannot be undone from the tracker.', 'Hand over ownership'], back: null }; },
+  ownDo: d => { B.commit([{ op: 'set', path: 'driveRequests/' + nid(), data: { proj: d.p, to: d.to, by: S.user, at: now() } }]).then(() => toast('Asked. The result shows here within a minute or two.'), err => toast(errMsg(err))); },
   planClear: () => { S.planType = ''; S.planGroup = ''; S.planQ = ''; },
   asgCol: d => { const c = planCols()[+d.i], ks = planRows().map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   asgRow: d => { const ks = planCols().map(c => key(c.x.id, c.t, d.m)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
@@ -1559,6 +1579,17 @@ document.addEventListener('change', ev => {
 });
 document.addEventListener('change', ev => {
   const el = ev.target;
+  if (el.id === 'fUp' || el.id === 'afUp') {                     // a file chosen for upload to the study's Drive folder
+    const f = el.files && el.files[0]; if (!f) return; const run = el.id === 'fUp', m = S.modal, an = S.selAnimal;
+    const also = run ? [...document.querySelectorAll('.fAlso:checked')].map(c => c.value) : [], label = (run ? val('fName') : val('afName')) || f.name;
+    const path = run ? 'Results/' + (X(m.x)?.name || 'Experiment') : 'Animals/' + an; toast('Uploading ' + f.name + '…');
+    driveUpload(f, path).then(j => {
+      if (run) { const rec = { id: nid(), proj: X(m.x).proj, key: key(m.x, m.t, m.m), name: label, url: j.url, at: now(), by: S.user }; if (also.length) rec.keys = [m.m, ...also].map(q => key(m.x, m.t, q)); DB.files.push(rec); }
+      else anMk(an).files.push({ name: label, url: j.url, at: now(), by: S.user });
+      commit(); render(); toast(f.name + ' is in the study\'s Drive folder.');
+    }).catch(err => toast('The upload did not work: ' + (err.message || 'no answer from Drive') + '.'));
+    return;
+  }
   if (el.id === 'monFile') {
     const f = el.files && el.files[0]; if (!f) return; const snap = $('#monSnap') ? $('#monSnap').checked : true;
     f.text().then(t => { const msg = monImport(t, snap); commit(); S.monView = 'status'; render(); toast(msg); }).catch(err => { rebuild(); toast('That file could not be used: ' + (err.message || 'it could not be read') + '.'); });

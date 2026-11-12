@@ -29,6 +29,9 @@ function onOpen() {
     .addItem('Set up and switch on', 'setup')
     .addItem('Check for mail now', 'run')
     .addItem('Switch off', 'stop')
+    .addSeparator()
+    .addItem('Switch on Google Drive', 'driveSetup')
+    .addItem('Switch off Google Drive', 'driveOff')
     .addToUi();
 }
 
@@ -50,6 +53,7 @@ function run() {
   try {
     try { links_(); } catch (err) { console.error('Sign-in links: ' + (err.message || err)); }   // must never hold up the notices
     pull_(); send_();
+    try { drive_(); } catch (err) { console.error('Drive: ' + (err.message || err)); }             // Drive.gs; does nothing until switched on
   } finally { lock.releaseLock(); }
 }
 

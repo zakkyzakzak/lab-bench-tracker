@@ -39,6 +39,8 @@ export async function finishLink() {
     return { ok: true };
   } catch (err) { return { error: err.code || String(err) }; }
 }
+// A short-lived proof of who is signed in, sent with an upload so the lab's Drive script can check it.
+export const idToken = () => auth.currentUser.getIdToken();
 export async function signOutAll() {
   await signOut(auth);
   // Clear the local cache so nothing from this account stays in the browser.

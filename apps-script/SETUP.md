@@ -53,6 +53,46 @@ How it behaves: a link is only sent to an address already listed in the lab, at 
 **Mail queue** sheet as `sign-in link` with `sent`, `skipped` or `failed` and the reason. The link
 itself is never written to the sheet.
 
+## 7. Google Drive (a folder per study, uploads, a data sheet)
+This part is optional. It lets the script keep a Drive folder for every study, shared with the
+study's members and the supervisors, and a spreadsheet in it with a copy of everything typed into
+the tracker. Everything it creates belongs to **your** Google account.
+
+### Switch it on
+1. In the script editor, add a second file: click **+** next to Files, choose **Script**, name it
+   `Drive`, and paste in the whole of [Drive.gs](Drive.gs).
+2. Replace `Code.gs` and `appsscript.json` with the new versions and save.
+3. Reload the sheet and choose **Lab mail > Switch on Google Drive**. Google asks for two more
+   permissions: your Google Drive, and your spreadsheets. Approve them, then choose the menu item
+   once more if the first click only asked for permission.
+4. Within a few minutes a folder called **Lab Bench Tracker** appears in your Drive with one
+   folder per study, and the tracker shows **Open the Google Drive folder for ...** at the top of
+   each study's pages.
+
+### Uploads from inside the tracker
+1. In the script editor click **Deploy > New deployment**, choose the type **Web app**, set
+   **Execute as: Me** and **Who has access: Anyone**, and click **Deploy**.
+2. Copy the web app address (it ends in `/exec`).
+3. In the tracker open **Lab and access**, paste it under **Google Drive**, press **Save**, then
+   **Test**.
+
+"Anyone" means anyone can reach the address, not that anyone can upload: every upload carries the
+person's tracker sign-in, which the script checks with Google, and it is refused unless that person
+is in the lab and in that study. If Wits does not offer "Anyone", uploads cannot work this way;
+the folders and the data sheet still do, and people can add files to the folder in Drive and
+paste the link into the tracker.
+
+After changing the script later, use **Deploy > Manage deployments > Edit > New version** so the
+address stays the same.
+
+### Things to know
+- Members are added to a study's folder as **Editor**, the highest level Drive allows without
+  being the owner. Someone whose Wits address has no Google account cannot be added.
+- The data sheet is rewritten about every ten minutes. Do not edit it; add your own tabs or copy it.
+- **Lab and access > Hand a study's folder to a new owner** makes someone else the owner of the
+  folder and its files. Google only allows that inside one organisation, so it may be refused for
+  an address in a different Wits domain; the reason is shown in the tracker.
+
 ## How it works
 - Every minute the script copies notices that have not been emailed into the **Mail queue** sheet
   as `pending`, emails each pending row, and marks it `sent`. The Status column is its memory.
