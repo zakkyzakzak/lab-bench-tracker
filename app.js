@@ -902,6 +902,8 @@ function modalHTML() {
      <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn" data-a="start" data-force="1">Start anyway</button></div>`;
   }
   if (m.type === 'imp') h = importHTML(m);
+  if (m.type === 'sure') h = `<h2>Are you sure?</h2><div class="todo"><span><b>${e(m.q[0])}</b>${m.q[1] ? '<br>' + e(m.q[1]) : ''}</span></div>
+     <div class="foot"><button class="btn" data-a="sureNo">Cancel</button><button class="btn pri" data-a="sureYes">${e(m.q[2])}</button></div>`;
   if (m.type === 'delProto') {
     const p = P(S.selProto), xs = DB.exps.filter(x => x.proto === p.id), ns = DB.sessions.filter(q => q.proto === p.id).length, lead = feeds(p);
     h = `<h2>Delete ${e(p.name)}?</h2>
@@ -1165,6 +1167,7 @@ const A = {
   pxAdd: () => { const p = P(val('pxProto')); if (!p) return false; const ts = [...new Set(val('pxT').split(',').map(clean).filter(Boolean))], x = { id: nid(), name: clean(val('pxName')) || p.name, proto: p.id, proj: S.project }; if (ts.length) x.targets = ts; else if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; }
     DB.exps.push(x); proj().exps.push(x.id); toast(x.name + (x.sched ? ` added with ${x.targets.length} rounds. Tick its samples in the grid below.` : ' added. Tick its samples in the grid below.')); },
   visShow: () => { S.visOn = true; }, visHide: () => { S.visOn = false; S.visDay = ''; visitStop(); },
+  sureNo: () => { S.modal = (S.modal && S.modal.back) || null; },
   planClear: () => { S.planType = ''; S.planGroup = ''; S.planQ = ''; },
   asgCol: d => { const c = planCols()[+d.i], ks = planRows().map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   asgRow: d => { const ks = planCols().map(c => key(c.x.id, c.t, d.m)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
@@ -1255,7 +1258,27 @@ const A = {
   addMem: d => { const u = val('add' + d.p), p = PR(d.p); if (!u || p.members.includes(u)) return false; p.members.push(u); notice(u, `${users[S.user].name} added you to ${p.name}.`); toast(users[u].name + ' now has access to ' + p.name); },
   rmMem: d => { const p = PR(d.p); p.members = p.members.filter(u => u !== d.u); },
 };
-document.addEventListener('click', ev => { const el = ev.target.closest('[data-a]'); if (!el || !A[el.dataset.a]) return; if (A[el.dataset.a](el.dataset, el, ev) !== false) { commit(); render(); } });
+/* Anything that deletes or removes asks first. Each entry gives the question, what is lost, and the button text. */
+const SURE = {
+  blDel: d => ['Remove this task from your backlog?', (DB.backlog.find(b => b.id === d.id) || {}).text || '', 'Remove task'],
+  // deleting a whole project asks for its name to be typed instead (see delProj)
+  delT: () => ['Withdraw this target?', 'It is removed for you and for your supervisor.', 'Withdraw target'],
+  fileDel: d => ['Remove this result file link?', ((DB.files.find(q => q.id === d.id) || {}).name || '') + '. Only the link is removed; the file itself stays where it is.', 'Remove link'],
+  inboxClear: () => ['Clear every notice in your inbox?', 'They are removed for good.', 'Clear inbox'],
+  rmMem: d => [`Remove ${nameOf(d.u)} from ${PR(d.p)?.name || 'this project'}?`, 'They will no longer see this project or its records.', 'Remove from project'],
+  rmMember: d => [`Remove ${nameOf(d.em)} from the lab?`, 'They lose access to the tracker. Their past records stay.', 'Remove from lab'],
+  smDel: d => [`Remove the sample ${d.m}?`, 'It is taken out of the study and unticked from every experiment in the plan.', 'Remove sample'],
+  xDel: d => [`Remove the experiment ${X(d.x)?.name || ''} from this study?`, 'Its ticks in the plan are removed too. The protocol itself stays in the lab library.', 'Remove experiment'],
+  edDel: d => [`Remove step ${+d.i + 1}?`, 'Everything typed in this step is lost.', 'Remove step'],
+};
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-a]'); if (!el) return; let a = el.dataset.a, d = el.dataset, sure = false;
+  if (a === 'sureYes') { const m = S.modal; if (!m || m.type !== 'sure') return; a = m.a; d = m.d; S.modal = m.back || null; sure = true; }
+  if (!A[a]) return;
+  if (SURE[a] && !sure) { syncEdit(); const q = SURE[a](d); S.modal = { type: 'sure', a, d: { ...d }, q, back: S.modal }; render(); return; }
+  if (A[a](d, el, ev) !== false) commit(); else if (!sure) return;
+  render();
+});
 document.addEventListener('change', ev => {
   const el = ev.target, c = el.dataset.c; if (!c) return;
   if (c === 'proj') A.pickProj({ id: el.value });
