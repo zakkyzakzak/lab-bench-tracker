@@ -491,10 +491,14 @@ V.exps = () => {
 };
 
 V.protos = () => {
-  const p = P(S.selProto), shown = proj() ? DB.protocols.filter(inProj) : DB.protocols;
-  const list = shown.map(q => `<button class="row ${p === q ? 'sel' : ''}" data-a="selProto" data-p="${q.id}"><span class="nm">${e(q.name)}</span><span class="meta">by ${e(users[q.by].name)} · ${cur(leaves(q)[0]).steps.length} steps · ${ptype(q)}</span>${flag('', leaves(q).length > 1 ? leaves(q).length + ' variants' : 'V1.0')}</button>`).join('')
-    || `<div class="hint" style="padding:12px">${DB.protocols.length ? 'None of the lab protocols is in this study yet. Add one from the lab library.' : 'The lab has no protocols yet. Create the first one.'}</div>`;
-  let det = '<div class="empty">Choose a protocol on the left, create a new one, or add one from the lab library.</div>';
+  const p = P(S.selProto), ins = proj() ? DB.protocols.filter(inProj) : [], rest = DB.protocols.filter(q => !ins.includes(q));
+  const row = q => `<button class="row ${p === q ? 'sel' : ''}" data-a="selProto" data-p="${q.id}"><span class="nm">${e(q.name)}</span><span class="meta">by ${e(users[q.by].name)} · ${cur(leaves(q)[0]).steps.length} steps · ${ptype(q)}</span>${flag('', leaves(q).length > 1 ? leaves(q).length + ' variants' : 'V1.0')}</button>`;
+  const grp = (t, a) => `<div class="grp"><span>${t}</span><span>${a.length}</span></div>`;
+  /* every lab protocol is always listed: the ones this study uses first, then the rest of the library */
+  const list = !DB.protocols.length ? '<div class="hint" style="padding:12px">The lab has no protocols yet. Create the first one.</div>'
+    : proj() ? grp('Used in ' + e(proj().name), ins) + (ins.map(row).join('') || `<div class="hint" style="padding:8px 12px">None yet. Open a protocol below and press Add to ${e(proj().name)}.</div>`) + (rest.length ? grp('Other lab protocols', rest) + rest.map(row).join('') : '')
+    : grp('Lab library', rest) + rest.map(row).join('');
+  let det = '<div class="empty">Choose a protocol on the left to view or edit it, or create a new one.</div>';
   if (p) {
     let n = p.nodes.find(q => q.id === S.selNode) || leaves(p)[0]; S.selNode = n.id; const leaf = isLeaf(p, n), r = n.revs.find(q => q.n === S.viewRev) || cur(n), isCur = r === cur(n);
     const used = (nn, rr) => DB.sessions.filter(s => s.node === nn.id && s.rev === rr.n).reduce((a, s) => a + s.mice.length, 0);
@@ -510,7 +514,7 @@ V.protos = () => {
       <div class="who"><span class="mono">${e(vname(p, n))}</span> · rev ${r.n} of ${cur(n).n} · ${dur(tot(r.steps))} in total · ${dur(hands(r.steps))} hands-on · longest hands-free stretch ${dur(maxW(r.steps))}</div>
       ${S.edit ? '' : `<div class="line">${inProj(p) || !proj() ? '' : `<button class="btn sm pri" data-a="addProj">Add to ${e(proj().name)}</button>`}${leaf && isCur ? `<button class="btn sm ${inProj(p) ? 'pri' : ''}" data-a="edStart">${r.steps.length ? 'Edit steps' : 'Build steps'}</button><button class="btn sm" data-a="split">Split into sub-variants</button>` : ''}<button class="btn sm" data-a="addVar">Add a variant</button><button class="btn sm" data-a="print">Print view</button></div>`}</div><div class="body">${body}</div>`;
   }
-  return `<div class="split ${p ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools"><button class="btn pri" data-a="newProto">Create new protocol</button>${proj() ? '<button class="btn" data-a="lib">Add from lab library</button>' : ''}</div><div class="grp"><span>${proj() ? 'In ' + e(proj().name) : 'Lab library'}</span><span>${shown.length}</span></div><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
+  return `<div class="split ${p ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools"><button class="btn pri" data-a="newProto">Create new protocol</button></div><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
 };
 
 V.reag = () => `<div class="cols"><div class="stack">${DB.reagents.map(r => {
