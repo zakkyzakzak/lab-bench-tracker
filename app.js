@@ -719,10 +719,15 @@ function nextMouse() {
   const all = new Set(DB.projects.flatMap(p => p.samples.map(base))); let mx = 0; ss.forEach(q => { const k = base(q).match(/^(.*?)(\d+)$/); if (k && k[1] === m[1]) mx = Math.max(mx, +k[2]); }); let n = mx + 1, id; do { id = m[1] + String(n++).padStart(m[2].length, '0'); } while (all.has(id)); return id;
 }
 const pTypes = () => proj().types || [];
+/* filters for the grid in Study plan: by sample type (the part of the name after the animal or donor), by group, and by text */
+const sType = id => id.includes(' ') ? id.slice(id.indexOf(' ') + 1) : '';
+const planTypes = () => [...new Set(proj().samples.map(m => sType(m.id)).filter(Boolean))];
+const planRows = () => proj().samples.filter(m => (!S.planType || sType(m.id) === S.planType) && (!S.planGroup || m.group === S.planGroup) && (!S.planQ || low(m.id).includes(low(S.planQ))));
 const pGroups = () => [...new Set(proj().samples.map(m => m.group).concat(proj().xg || []).filter(Boolean))];
 V.plan = () => {
   if (!proj()) return noProj();
   const p = proj(), xs = projExps(), cols = planCols(), inUse = new Set(xs.map(x => x.proto)), nm = nextMouse(), selT = pTypes().filter(t => S.addT.has(t));
+  const types = planTypes(), groups = pGroups(); if (!types.includes(S.planType)) S.planType = ''; if (!groups.includes(S.planGroup)) S.planGroup = ''; const rows = planRows();
   return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><button class="btn pri" data-a="newStudy">New study</button></div>
    <div class="hint">Set a study up in three steps: list the samples you hold, choose the experiments from the lab protocols, then tick which sample gets which experiment. Overview, Samples, Experiments and Targets all follow what is ticked here.</div></div>
   <div class="cols">
@@ -749,9 +754,14 @@ V.plan = () => {
     <div class="line"><button class="btn" data-a="pxAdd">Add experiment</button></div>` : '<div class="hint">The lab has no protocols yet. Create one under Protocols, then add it here.</div><div class="line"><button class="btn" data-a="tab" data-k="protos">Open Protocols</button></div>'}
     <div class="hint">The protocol stays one shared protocol. The genes or proteins belong to this study, and each can be linked to its own primer or antibody in Reagents so the right stock goes down.</div></div></div>
   <div class="card"><div class="line"><h2 class="grow">3. Which sample gets which experiment</h2><label class="fld" for="planX">Columns<select id="planX" data-c="planX"><option value="">All experiments</option>${xs.map(x => `<option value="${x.id}" ${S.planX === x.id ? 'selected' : ''}>${e(x.name)}</option>`).join('')}</select></label></div>
-   <div class="hint">Tick a box to plan that experiment on that sample. Boxes where a run has already started are locked. "all / none" fills or clears a whole row or column.</div>
+   <div class="line" style="flex-wrap:wrap"><b class="sm">Show samples</b>
+    ${types.length ? `<label class="fld" for="planType">Type<select id="planType" data-c="planType"><option value="">All types</option>${types.map(t => `<option ${S.planType === t ? 'selected' : ''}>${e(t)}</option>`).join('')}</select></label>` : ''}
+    ${groups.length ? `<label class="fld" for="planGroup">Group<select id="planGroup" data-c="planGroup"><option value="">All groups</option>${groups.map(g => `<option ${S.planGroup === g ? 'selected' : ''}>${e(g)}</option>`).join('')}</select></label>` : ''}
+    <label class="fld" for="planQ">Name contains<input type="text" id="planQ" data-c="planQ" value="${e(S.planQ || '')}" placeholder="e.g. M01 or formalin" style="width:170px"></label>
+    <span class="sm muted">${rows.length} of ${p.samples.length} shown</span>${rows.length < p.samples.length ? '<button class="lnk sm" data-a="planClear">Show all</button>' : ''}</div>
+   <div class="hint">Tick a box to plan that experiment on that sample. Boxes where a run has already started are locked. "all / none" fills or clears a whole row, or a whole column for the samples shown.</div>
    ${p.samples.length && cols.length ? `<div class="scroll" style="max-height:70vh;overflow:auto"><table class="mx"><thead><tr><th>Sample</th>${cols.map((c, i) => `<th>${e(c.x.name)}${c.t ? '<br><span class="mono">' + e(c.t) + '</span>' : ''}<br><button class="lnk" data-a="asgCol" data-i="${i}">all / none</button></th>`).join('')}</tr></thead>
-    <tbody>${p.samples.map(m => `<tr><td><span class="mono">${e(m.id)}</span> <button class="lnk sm" style="font-weight:400" data-a="asgRow" data-m="${e(m.id)}">all / none</button></td>${cols.map(c => { const k = key(c.x.id, c.t, m.id); return `<td><input type="checkbox" data-c="asg" data-k="${e(k)}" aria-label="${e(m.id + ' ' + c.x.name + ' ' + c.t)}" ${DB.asg.has(k) ? 'checked' : ''} ${IDX.has(k) ? 'disabled' : ''}></td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`
+    <tbody>${rows.map(m => `<tr><td><span class="mono">${e(m.id)}</span>${m.group ? ` <span class="muted sm">${e(m.group)}</span>` : ''} <button class="lnk sm" style="font-weight:400" data-a="asgRow" data-m="${e(m.id)}">all / none</button></td>${cols.map(c => { const k = key(c.x.id, c.t, m.id); return `<td><input type="checkbox" data-c="asg" data-k="${e(k)}" aria-label="${e(m.id + ' ' + c.x.name + ' ' + c.t)}" ${DB.asg.has(k) ? 'checked' : ''} ${IDX.has(k) ? 'disabled' : ''}></td>`; }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length + 1}" class="muted">No sample matches these filters.</td></tr>`}</tbody></table></div>`
       : '<div class="hint">Add at least one sample and one experiment above and the grid appears here.</div>'}</div></div>`;
 };
 
@@ -1105,7 +1115,8 @@ const A = {
   tgAdd: d => { const x = X(d.x), t = clean(val('tg' + d.x)), r = val('tr' + d.x); if (!t || x.targets.includes(t)) return false; x.targets.push(t); if (r) (x.treag = x.treag || {})[t] = r; },
   pxAdd: () => { const p = P(val('pxProto')); if (!p) return false; const ts = [...new Set(val('pxT').split(',').map(clean).filter(Boolean))], x = { id: nid(), name: clean(val('pxName')) || p.name, proto: p.id, proj: S.project }; if (ts.length) x.targets = ts; else if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; }
     DB.exps.push(x); proj().exps.push(x.id); toast(x.name + (x.sched ? ` added with ${x.targets.length} rounds. Tick its samples in the grid below.` : ' added. Tick its samples in the grid below.')); },
-  asgCol: d => { const c = planCols()[+d.i], ks = proj().samples.map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
+  planClear: () => { S.planType = ''; S.planGroup = ''; S.planQ = ''; },
+  asgCol: d => { const c = planCols()[+d.i], ks = planRows().map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   asgRow: d => { const ks = planCols().map(c => key(c.x.id, c.t, d.m)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   dDeal: () => { if (!canLab()) return false; const k = mKey(S.dOff); deal(k, mKey(S.dOff - 1)); toast(mName(k) + ' dealt out.'); },
   dTick: d => { const dy = DB.duties.find(q => q.id === d.d); if (dy.kind === 'once') dy.doneAt = now(); else DB.dutyLog.push({ id: nid(), duty: dy.id, by: S.user, at: now(), month: mKey(0) }); toast(dy.name + ' ticked as done.'); },
@@ -1206,6 +1217,9 @@ document.addEventListener('change', ev => {
   if (c === 'pick') { el.checked ? S.picked.add(el.dataset.m) : S.picked.delete(el.dataset.m); }
   if (c === 'asg') { el.checked ? DB.asg.add(el.dataset.k) : DB.asg.delete(el.dataset.k); commit(); return; }
   if (c === 'planX') S.planX = el.value;
+  if (c === 'planType') S.planType = el.value;
+  if (c === 'planGroup') S.planGroup = el.value;
+  if (c === 'planQ') S.planQ = el.value.trim();
   if (c === 'dOff') S.dOff = +el.value;
   if (c === 'variant') S.variant = el.value;
   if (c === 'tick') { const s = sess(el.dataset.id); if (s) s.ticks[el.dataset.k] = el.checked; }
