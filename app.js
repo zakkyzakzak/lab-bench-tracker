@@ -176,11 +176,31 @@ function rebuild() {
   S.people = new Map(col('users').map(u => [u.email, u]));
   buildIdx(); const prev = BASE; BASE = snap();
   if (dataMode && !pending.size) S.ready = true;
+  if (S.ready) restoreState();          // once everything has loaded, go back to where this tab was before a refresh
   fixSel();
   // Our own writes echo back through the listeners: redraw only if something really changed.
   if (sigNow() === lastSig && sameSnap(prev, BASE)) return;
   softRender();
 }
+/* Where you are (tab, study, what is open, an unsaved protocol being built) is kept for this browser tab,
+   so a refresh comes back to the same place. It is kept in the tab only and cleared on sign-out. */
+const KEEP = ['tab', 'project', 'selMouse', 'selExp', 'selTarget', 'selProto', 'selNode', 'viewRev', 'openSession', 'planX', 'planType', 'planGroup', 'planQ', 'dOff', 'q', 'variant', 'edit', 'visOn', 'visDay'];
+let restored = false;
+function saveState() {
+  if (!S.fb || !S.ready || !restored) return;
+  try { syncEdit(); const o = { uid: S.fb.uid, picked: [...S.picked] }; for (const k of KEEP) if (S[k] !== undefined) o[k] = S[k]; sessionStorage.setItem('lbt-state', JSON.stringify(o)); } catch (_) {}
+}
+function restoreState() {
+  if (restored) return; restored = true;
+  try {
+    const o = JSON.parse(sessionStorage.getItem('lbt-state') || 'null'); if (!o || o.uid !== S.fb.uid) return;
+    for (const k of KEEP) if (k in o) S[k] = o[k];
+    if (!TABS.some(t => t[0] === S.tab)) S.tab = 'today';
+    S.picked = new Set(Array.isArray(o.picked) ? o.picked : []);
+    if (S.edit && (!Array.isArray(S.edit.steps) || !S.selProto)) S.edit = null;
+  } catch (_) {}
+}
+addEventListener('pagehide', saveState);
 let lastSig = '';   // what the screen was last drawn from, apart from DB itself
 const sigNow = () => canon([S.ready, pending.has('lab'), S.labErr, dataMode, S.fb === undefined ? 'starting' : S.fb ? S.fb.uid : 'signed out', [...S.people]]);
 function sameSnap(a, b) {
@@ -974,7 +994,7 @@ function render() {
      <div class="line"><button class="btn pri" data-a="excuse" data-id="${lock.id}">Send to Prof Kaur and unlock</button><span class="err" id="exErr"></span></div></section>` : ''}
    <div class="view" ${lock ? 'inert' : ''}>${safe(V[S.tab], 'tab')}</div>`;
   document.querySelectorAll('#app .scroll, #app .rows').forEach((el, i) => { if (keep[i]) { el.scrollTop = keep[i][0]; el.scrollLeft = keep[i][1]; } });
-  $('#modal').innerHTML = safe(modalHTML, 'window'); tick();
+  $('#modal').innerHTML = safe(modalHTML, 'window'); tick(); saveState();
 }
 function tick() { document.querySelectorAll('[data-until]').forEach(el => { const l = Math.round((+el.dataset.until - now()) / 1000); el.textContent = l > 0 ? (l >= 3600 ? Math.floor(l / 3600) + ':' : '') + String(Math.floor(l % 3600 / 60)).padStart(2, '0') + ':' + String(l % 60).padStart(2, '0') + ' left' : 'time is up'; }); }
 setInterval(tick, 1000);
@@ -1014,7 +1034,7 @@ const A = {
       .then(() => toast(`A sign-in link will be emailed to ${nameOf(d.em)} within about two minutes.`), err => { el.disabled = false; toast(errMsg(err)); });
     return false;
   },
-  signout: () => { leave(); stopAll(); B.signOutAll().then(() => location.reload()); return false; },
+  signout: () => { try { sessionStorage.removeItem('lbt-state'); } catch (_) {} restored = false; leave(); stopAll(); B.signOutAll().then(() => location.reload()); return false; },
   setupLab: () => {
     const sup = low($('#supEmail').value), name = $('#labName').value.trim() || 'Kaur lab';
     if (!WITS.test(sup)) { $('#setupErr').textContent = "Enter Prof Kaur's Wits email address."; return false; }
