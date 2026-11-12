@@ -1,94 +1,138 @@
-# Handover: turn my thesis methods into Lab Bench Tracker protocols
+# Handover: turn my thesis methods into Lab Bench Tracker protocols (format version 2)
 
 You have already read my MSc submissions, including the methods. I use a web app called
 Lab Bench Tracker to run protocols at the bench step by step. I want every method I used turned
 into a protocol the app can import, so I do not have to type them in by hand.
 
+**If you already produced a version 1 file:** the app has been changed in response to your first
+feedback file. Please regenerate the JSON using the new fields below ("New in version 2"), so that
+values you previously had to push into `description` or `comment` go into proper fields.
+
 Please produce **two files**:
 
 1. `lab-bench-protocols.json`: the protocols, in the exact format below. I upload this to the app.
-2. `lab-bench-feedback.md`: where my methods did not fit the format, using the template at the end.
+2. `lab-bench-feedback.md`: where my methods still do not fit, using the template at the end.
    I give this to the developer of the app so the app can be changed to fit the methods.
 
-Both matter equally. Where a method does not fit, still put a best-fit version in the JSON, and
-describe the misfit in the feedback file. Do not bend the science to fit the format.
+Where a method does not fit, still put a best-fit version in the JSON, and describe the misfit in
+the feedback file. Do not bend the science to fit the format.
 
 ## Ground rules
 
 - Use only what is written in my methods. Do not fill gaps from general knowledge. If a volume,
-  time or reagent is not stated, leave that field out (or `null`) and list it in the feedback file
-  under "Missing from the source".
-- One protocol per distinct method (for example tissue processing, a stain, an assay, an extraction).
-  If one written method is really two procedures done on different days or handing a processed
-  sample from one to the next, split it and connect them with `previousProtocols` (see below).
+  time or reagent is not stated, leave that field out and list it in the feedback file under
+  "Missing from the source". Never write a midpoint or a guess.
+- One protocol per distinct method. If one written method is really two procedures handing a
+  processed sample from one to the next, split it and connect them with `previousProtocols`.
 - Keep step descriptions short and practical, written as an instruction for someone at the bench.
   Do not copy long passages of the thesis.
 - Keep the order exactly as performed.
 - Output valid JSON only in the first file: no comments, no trailing commas, double quotes.
 
+## New in version 2
+
+| What | Field | Where |
+|---|---|---|
+| Many more step kinds | `kind` | `other` steps |
+| Temperature | `temperature` | any step |
+| Concentration, dilution or dose | `concentration` | any step, and each component |
+| Amounts that are not volumes | `unit` now takes mass, length and more | any step, and each component |
+| Several reagents in one step | `components` | any step |
+| A time range | `minutes` + `minutesMax` | incubation, other |
+| A step that ends on an observation | `until` | incubation, other |
+| Equipment or instrument | `equipment` | any step |
+| Washes without a count or a time | `times` and `minutesEach` are optional | wash |
+| Notes for the whole protocol | `notes` | protocol |
+| Ethics approval number | `ethicsApproval` | protocol |
+| Needing two earlier protocols at once | `previousNeedsAll` | protocol |
+| Seconds, and long holds | `minutes` may be a decimal (0.5) or large (10080 shows as 7 days) | incubation, other |
+
 ## How the app thinks about a protocol
 
-- A **protocol** has a name and an ordered list of **steps**.
-- A protocol may have **variants** (for example "Liver" and "Adipose", or "Paraffin sections" and
-  "Frozen sections") when the same method was run with different steps or amounts. Each variant has
-  its own full list of steps. If there is only one way it was done, do not use variants.
-- A protocol is one of three kinds, which the app works out from two fields:
-  - **Reliant**: it needs a sample already processed by another protocol (for example IHC needs
-    FFPE sections). Set `requiresPrevious: true` and name the earlier protocol(s) in
-    `previousProtocols`, spelled exactly as their `name` in this file.
+- A **protocol** has a name and an ordered list of **steps**, plus optional `notes` and
+  `ethicsApproval` that apply to all of it.
+- A protocol may have **variants** (for example one per tissue, or one per treatment arm). Each
+  variant has its own full list of steps. If there is only one way it was done, do not use variants.
+- A protocol is one of three kinds, which the app works out:
+  - **Reliant**: it needs a sample already processed by another protocol. Set
+    `requiresPrevious: true` and name the earlier protocol(s) in `previousProtocols`, spelled
+    exactly as their `name` in this file. By default any one of them is enough; set
+    `previousNeedsAll: true` when every one of them is required.
   - **Initial**: another protocol names it in `previousProtocols`. Nothing to set.
-  - **Entire**: runs from start to end on its own (for example a serum ALT/AST assay). Nothing to set.
+  - **Entire**: runs from start to end on its own. Nothing to set.
 - Every **step** is one of three types:
-  - `wash`: the same wash repeated a number of times (`times`, `minutesEach`).
-  - `incubation`: the sample sits in something for a time (`minutes`), usually hands-free.
-  - `other`: anything else. It must carry a `kind` from this fixed list:
-    `Mount`, `Image / view`, `Storage`, `Thaw`, `Fix`, `Centrifuge`, `Collect / label`, `Custom`.
-    Use `Custom` when none fits, and say what it really is in `description`.
+  - `wash`: a wash, optionally repeated (`times`) and timed (`minutesEach`).
+  - `incubation`: the sample sits in something for a time or until something is seen.
+  - `other`: anything else. It carries a `kind` from this list:
+    `Pipette / add`, `Remove / aspirate`, `Resuspend`, `Homogenise / lyse`, `Centrifuge`, `Fix`,
+    `Thaw`, `Storage`, `Section`, `Mount`, `Image / view`, `Collect / label`, `Inject`,
+    `Anaesthetise`, `Euthanase`, `Dissect / excise`, `Measure / record`, `Instrument run`,
+    `Calculate`, `Review / report`, `Custom`.
+    Use `Custom` only as a last resort, and report each use in the feedback file.
 
 ## File 1 format: `lab-bench-protocols.json`
 
 ```json
 {
   "format": "lab-bench-protocols",
-  "version": 1,
+  "version": 2,
   "protocols": [
     {
-      "name": "Example stain",
-      "source": "MSc dissertation, section 2.4.1",
+      "name": "Example reaction",
+      "source": "MSc dissertation, section 3.12.2",
+      "notes": "All steps on ice unless stated.",
+      "ethicsApproval": "",
       "requiresPrevious": true,
-      "previousProtocols": ["Example tissue processing"],
+      "previousProtocols": ["Example extraction", "Example quality control"],
+      "previousNeedsAll": true,
       "steps": [
         {
-          "type": "wash",
-          "description": "",
-          "reagent": "PBS",
-          "amount": 5,
-          "unit": "mL",
+          "type": "other",
+          "kind": "Pipette / add",
+          "description": "Assemble the reaction mix",
+          "reagent": "5X Reaction Buffer",
+          "amount": 4,
+          "unit": "µL",
           "per": "sample",
-          "times": 3,
-          "minutesEach": 5,
-          "checks": [],
-          "comment": ""
+          "temperature": "On ice",
+          "components": [
+            { "reagent": "dNTP mix", "amount": 2, "unit": "µL", "concentration": "10 mM" },
+            { "reagent": "Template RNA", "amount": 1, "unit": "µg" }
+          ],
+          "comment": "Total volume 20 µL"
         },
         {
           "type": "incubation",
-          "description": "Incubate in primary antibody at 4 °C overnight",
-          "reagentDependsOnTarget": true,
-          "amount": 100,
-          "unit": "µL",
-          "per": "sample",
-          "minutes": 960,
-          "handsFree": true,
-          "checks": ["Slides kept in a humid chamber"],
-          "comment": "Dilution 1:200 in blocking buffer"
+          "minutes": 45,
+          "minutesMax": 60,
+          "temperature": "42 °C",
+          "equipment": "Thermal cycler",
+          "handsFree": true
+        },
+        {
+          "type": "incubation",
+          "description": "Incubate with detachment enzyme",
+          "reagent": "Example enzyme",
+          "amount": 2,
+          "unit": "mL",
+          "per": "batch",
+          "until": "the cells detach",
+          "temperature": "37 °C"
+        },
+        {
+          "type": "wash",
+          "reagent": "PBS",
+          "times": 3
         },
         {
           "type": "other",
-          "kind": "Mount",
-          "description": "Mount with coverslip",
-          "reagent": "Mounting medium",
-          "minutes": 5,
-          "handsFree": false
+          "kind": "Inject",
+          "description": "Inject intraperitoneally",
+          "reagent": "Example drug",
+          "concentration": "20 mg/kg",
+          "amount": 200,
+          "unit": "µL",
+          "per": "sample"
         }
       ]
     }
@@ -99,23 +143,20 @@ describe the misfit in the feedback file. Do not bend the science to fit the for
 A protocol with variants uses `variants` instead of `steps`:
 
 ```json
-{
-  "name": "Example extraction",
-  "variants": [
-    { "name": "Liver", "steps": [ ... ] },
-    { "name": "Adipose", "steps": [ ... ] }
-  ]
-}
+{ "name": "Example dosing", "variants": [ { "name": "Vehicle control", "steps": [ ... ] }, { "name": "Drug A", "steps": [ ... ] } ] }
 ```
 
 ### Protocol fields
 
 | Field | Required | Meaning |
 |---|---|---|
-| `name` | yes | Short name as the lab would say it. Must be unique in the file. Max 120 characters. |
-| `source` | no | Where in my documents it comes from (document and section). Shown in the history. |
+| `name` | yes | Short name as the lab would say it. Unique in the file. Max 120 characters. |
+| `source` | no | Where in my documents it comes from. Shown in the history. |
+| `notes` | no | Anything true of the whole protocol ("all steps at room temperature", group sizes). Max 1000 characters. |
+| `ethicsApproval` | no | The clearance number, for any protocol involving animals or people. |
 | `requiresPrevious` | no | `true` if it starts from a sample another protocol has processed. |
-| `previousProtocols` | no | Names of the protocol(s) the sample comes from. Any one of them is enough. |
+| `previousProtocols` | no | Names of the protocol(s) the sample comes from. |
+| `previousNeedsAll` | no | `true` if all of `previousProtocols` are needed; otherwise any one is enough. |
 | `steps` | yes, unless `variants` | The ordered steps. |
 | `variants` | no | List of `{ "name", "steps" }`. Use instead of `steps`. |
 
@@ -124,58 +165,64 @@ A protocol with variants uses `variants` instead of `steps`:
 | Field | Used by | Meaning |
 |---|---|---|
 | `type` | all | `"wash"`, `"incubation"` or `"other"`. |
-| `kind` | other | One of the fixed list above. |
-| `description` | all | What to do, in one line (max 300 characters). May be left empty for a plain wash or incubation: the app then writes it from the other fields, for example "Wash 3× in 5 mL PBS". For `other` steps always write it. |
-| `reagent` | all | The **name** of the main reagent or solution for the step, for example `"PBS"` or `"10% neutral buffered formalin"`. Use the same spelling every time the same reagent appears, across all protocols. Leave out if there is none. Only one reagent per step. |
-| `reagentDependsOnTarget` | all | `true` when the reagent differs by gene or protein (a primary antibody, a primer pair, a probe). Then leave `reagent` out. |
-| `amount` | all | Number only: volume of that reagent used. Leave out if not stated. |
-| `unit` | all | `"mL"` or `"µL"` only. Anything else (g, mg, units, %) cannot go here: put it in `description` and report it in the feedback. |
-| `per` | all | `"sample"` if that amount is used for each sample, `"batch"` if once for the whole run. |
-| `times` | wash | How many washes. |
-| `minutesEach` | wash | Minutes per wash. |
-| `minutes` | incubation, other | Duration in minutes. Convert hours. For "overnight" use 960 and say "overnight" in `description`. |
-| `handsFree` | incubation, other | `true` if the person can walk away (incubator, centrifuge run, drying). `false` if they are working the whole time. |
-| `checks` | all | Short things to tick off while doing the step, for example "Kept in the dark". Optional. |
-| `comment` | all | Anything the person running it should know that is not an instruction: concentration, dilution, temperature, speed, catalogue detail, caution. Max 500 characters. |
+| `kind` | other | One of the list above. |
+| `description` | all | What to do, in one line (max 300 characters). May be left empty for a plain wash or incubation: the app then writes it, for example "Wash 3× in 5 mL PBS". For `other` steps always write it. |
+| `reagent` | all | The **name** of the main reagent or solution. Same spelling every time it appears, across all protocols. |
+| `reagentDependsOnTarget` | all | `true` when the reagent differs by gene or protein (primary antibody, primer pair). Then leave `reagent` out. |
+| `amount` | all | Number only. Leave out if not stated. |
+| `unit` | all | One of `mL`, `µL`, `L`, `g`, `mg`, `µg`, `ng`, `mg/kg`, `µm`, `mm`, `mm³`, `cm²`, `cells`, `U`. Only the volume units are counted against reagent stock. |
+| `per` | all | `"sample"` if the amount is used for each sample, `"batch"` if once for the whole run. |
+| `concentration` | all | Free text for concentration, dilution or dose: `"1:500"`, `"0.01 mg/mL"`, `"20 mg/kg"`, `"3.6 x 10^7 cells/mL"`. |
+| `components` | all | Further reagents in the same step: a list of `{ "reagent", "amount", "unit", "concentration" }`. Put the main one in `reagent` and the rest here. Use this for reaction mixes and anything made of several parts; do not invent a made-up mix name any more. |
+| `temperature` | all | Free text: `"37 °C"`, `"On ice"`, `"Room temperature"`, `"-80 °C"`, `"37 °C, 5% CO2"`. |
+| `equipment` | all | The instrument or equipment named for the step. |
+| `times` | wash | How many washes. Leave out if not stated. |
+| `minutesEach` | wash | Minutes per wash. Leave out if not stated. |
+| `minutes` | incubation, other | Duration in minutes. Decimals allowed (30 seconds is 0.5). Leave out if not stated. For "overnight" use 960 and say "overnight" in `description`. |
+| `minutesMax` | incubation, other | Only for a stated range: `minutes` is the lower end, `minutesMax` the upper. |
+| `until` | incubation, other | The observation that ends the step, when the method gives one ("the cells detach", "70-80% confluent"). May be used with or without `minutes`. |
+| `handsFree` | incubation, other | `true` if the person can walk away. |
+| `checks` | all | Short things to tick off while doing the step. Also use for pass criteria ("viability above 95%"). |
+| `comment` | all | Background the person should know that has no field: catalogue detail, cautions, replicate or image counts, formulas. Max 500 characters. |
 
-### Things the format has no field for
+### Still not supported: put in text and report it
 
-There is no separate field for temperature, centrifuge speed, concentration or dilution, pH,
-equipment, a second reagent in the same step, how a buffer is made up, steps repeated as a cycle,
-steps done only under a condition, or quantities by weight. For now:
+The app still has no proper place for the following. Use `description`, `comment` or protocol
+`notes`, and add an entry to the feedback file each time so they can be prioritised:
 
-- put temperature, speed and similar into `description` when it is part of the instruction
-  ("Centrifuge at 12 000 × g, 4 °C"), and into `comment` when it is background;
-- give a made-up solution one name as its `reagent` (for example "Blocking buffer") and put its
-  recipe in `comment` the first time it appears;
-- write a repeated cycle out as separate steps if it is short, or as one step with the cycle
-  described if it is long (for example PCR cycling);
-- and in every such case **add an entry to the feedback file**. That is how the app gets improved.
+- a protocol repeated on a schedule (weekly dosing, measurements three times a week);
+- a repeated cycle of steps (thermal cycling): write it as one `Instrument run` step;
+- a step that splits a sample into several streams for different later protocols;
+- thresholds that should raise an alert (welfare limits) rather than be ticked;
+- a range for an amount (20-50 mL);
+- formulas, software and replicate or image counts as their own fields;
+- subjects (an animal, a cage) as distinct from samples.
 
 ## File 2 format: `lab-bench-feedback.md`
 
 Use exactly these headings so the developer can work through it.
 
 ```markdown
-# Lab Bench Tracker: protocol format feedback
+# Lab Bench Tracker: protocol format feedback (version 2)
 
 ## Summary
-- Protocols written: <number>
+- Protocols written: <number> (<number> steps)
+- Steps typed `other` / `Custom`: <number> (list them)
 - Protocols that fitted cleanly: <names>
 - Protocols that needed workarounds: <names>
+
+## What version 2 fixed, and what it did not
+For each misfit in the first feedback file: fixed / partly fixed / not fixed, in one line.
 
 ## Recurring misfits
 One entry per kind of problem, most common first.
 
-### <short title, e.g. "No field for temperature">
+### <short title>
 - How often: <number of steps> steps in <number> protocols
 - Examples: <protocol name, step number> ; <protocol name, step number>
 - What the method needs: <plain description>
 - What I did in the JSON instead: <workaround used>
 - Suggested change to the app: <new field, new step type, new option, with the values it should accept>
-
-## Step types or kinds that are missing
-For each: the name you would give it, what fields it needs, and which steps would use it.
 
 ## Per-protocol notes
 ### <protocol name>
@@ -183,21 +230,19 @@ For each: the name you would give it, what fields it needs, and which steps woul
 - Structure: <anything about ordering, parallel steps, split across days, variants>
 
 ## Missing from the source
-Values the app wants that my methods do not state.
-- <protocol name>, step <n>: <what is missing, e.g. volume not stated>
+- <protocol name>, step <n>: <what is missing>
 
 ## Reagent list
-Every distinct `reagent` name used in the JSON, one per line, with any brand, supplier or catalogue
-number given in my methods. This becomes the lab's reagent list.
+Every distinct reagent name used in the JSON (main reagents and components), one per line.
 - <reagent name> | <brand> | <supplier or catalogue number> | <notes>
 
 ## Open questions for Zak
-Anything you had to guess, or where two readings of the methods were possible.
 ```
 
 ## Before you finish
 
 - Check the JSON parses, every `previousProtocols` name matches a `name` in the file, and every
   step has a `type`.
-- Check each reagent is spelled the same way everywhere.
-- Tell me how many protocols and steps are in the file, and which three misfits matter most.
+- Check each reagent is spelled the same way everywhere, including inside `components`.
+- Tell me how many protocols and steps are in the file, how many steps are still `Custom`, and
+  which three misfits matter most.
