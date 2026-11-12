@@ -173,6 +173,29 @@ button.mc{cursor:pointer} button.mc:hover{border-color:var(--accent)}
 /* real build: sign-in gate, lab access list, print */
 input[type=email],input[type=url]{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:6px 8px;min-width:0}
 .gate{min-height:70vh;display:grid;place-items:center}
+/* welcome screen: the strand draws itself, then the two halves part and the page shows through */
+#welcome{position:fixed;inset:0;z-index:1000;background:var(--bg);display:grid;place-items:center;padding:16px;cursor:pointer;transition:opacity .5s ease .45s}
+.wel-in{display:grid;justify-items:center;gap:14px;text-align:center}
+.wel-in img,.wel-in h1,.wel-in .hint{transition:opacity .35s ease}
+.wel-in h1{margin:0;font-size:28px;font-weight:600}
+.helix{max-width:80vw;height:auto;overflow:visible;--dna1:#0b4a8f;--dna2:#d9577a}
+.helix path{fill:none;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke:var(--dna1);stroke-dasharray:1;stroke-dashoffset:1;animation:dnaDraw 1.1s ease-out forwards;transition:transform .75s cubic-bezier(.5,0,.2,1),opacity .6s ease .15s}
+.helix path.b{stroke:var(--dna2);animation-delay:.18s}
+.helix .rungs{transform-box:fill-box;transform-origin:center;transition:transform .35s ease,opacity .35s ease}
+.helix line{stroke:var(--dna1);stroke-width:3;stroke-linecap:round;opacity:0;animation:dnaRung .3s ease-out forwards,dnaPulse 1.6s ease-in-out infinite;animation-delay:calc(.3s + var(--i)*40ms),calc(1.4s + var(--i)*60ms)}
+.helix line.p{stroke:var(--dna2)}
+@keyframes dnaDraw{to{stroke-dashoffset:0}}
+@keyframes dnaRung{to{opacity:.75}}
+@keyframes dnaPulse{50%{opacity:.3}}
+#welcome.open{opacity:0;pointer-events:none}
+#welcome.open img,#welcome.open h1,#welcome.open .hint{opacity:0}
+#welcome.open .rungs{transform:scaleY(0);opacity:0}
+#welcome.open path.a{transform:translateY(-70px);opacity:0}
+#welcome.open path.b{transform:translateY(70px);opacity:0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .helix{--dna1:#6fb1e8;--dna2:#f08fa8}}
+:root[data-theme="dark"] .helix{--dna1:#6fb1e8;--dna2:#f08fa8}
+@media (prefers-reduced-motion:reduce){.helix path{animation:none;stroke-dashoffset:0;transition:opacity .3s}.helix line{animation:none;opacity:.75}#welcome.open path.a,#welcome.open path.b{transform:none}#welcome{transition-delay:0s}}
+@media print{#welcome{display:none}}
 .gate .card{max-width:440px;width:100%;text-align:left}
 .gate .card label{display:grid;gap:4px;font-size:14px;font-weight:500}
 .gate .card input{width:100%}
