@@ -1075,7 +1075,7 @@ document.addEventListener('focusout', () => { if (stale) setTimeout(() => { if (
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && S.modal) { S.modal = null; render(); } });
 
 /* ---------------- welcome ---------------- */
-/* Shown once per browser tab after sign-in: a DNA strand draws itself while the lab loads, then unzips to show the page. */
+/* Shown every time the page loads signed in: a DNA strand draws itself while the lab loads, then unzips to show the page. */
 let WEL = null;
 function firstName(u) {
   const cap = w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
@@ -1090,7 +1090,6 @@ function helixSVG() {
   return `<svg class="helix" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><g class="rungs">${rungs}</g><path class="a" pathLength="1" d="${strand(1)}"/><path class="b" pathLength="1" d="${strand(-1)}"/></svg>`;
 }
 function startWelcome(u) {
-  try { if (sessionStorage.getItem('welcomed') === u.uid) return; sessionStorage.setItem('welcomed', u.uid); } catch (_) {}
   if (WEL) WEL.el.remove();
   const el = document.createElement('div'), nm = firstName(u); el.id = 'welcome'; el.setAttribute('role', 'status');
   el.innerHTML = `<div class="wel-in"><img src="logo.png" alt="" width="116" height="116"><h1>Welcome${nm ? ', ' + e(nm) : ''}</h1>${helixSVG()}<div class="hint">Opening the lab…</div></div>`;
