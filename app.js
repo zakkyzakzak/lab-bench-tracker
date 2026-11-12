@@ -88,7 +88,35 @@ function syncProjSubs() {
 let PRES = new Map(), presOff = null, presT = null;
 const BEAT = 3 * MIN, ONLINE = 7 * MIN;
 function beat() { if (S.fb && dataMode && !document.hidden) B.commit([{ op: 'set', path: 'presence/' + S.fb.uid, data: { email: S.user, at: now() } }]).catch(() => {}); }
-function leave() { if (S.fb && dataMode) B.commit([{ op: 'delete', path: 'presence/' + S.fb.uid }]).catch(() => {}); }
+/* a record of when each person had the site open, which only admins can read (Lab and access).
+   One entry per stretch of use: it is extended every minute while the tab is in front of the person. */
+let VISIT = null, visT = null, VIS = new Map(), visOff = null, visDay = null;
+const dayKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+function visitTick(force) {
+  if (!S.fb || !dataMode || (document.hidden && !force)) return;
+  const t = now(); if (!VISIT || VISIT.uid !== S.fb.uid || t - VISIT.to > 5 * MIN) { if (force) return; VISIT = { uid: S.fb.uid, id: S.fb.uid + '-' + t, from: t }; }
+  VISIT.to = t; B.commit([{ op: 'set', path: 'visits/' + VISIT.id, data: { email: S.user, day: dayKey(VISIT.from), from: VISIT.from, to: t } }]).catch(() => {});
+}
+function visitWatch(day) {
+  if (visDay === day) return; if (visOff) visOff(); visDay = day; VIS = new Map();
+  visOff = B.watchCol('visits', ['day', '==', day], m => { VIS = m; if (S.tab === 'lab') softRender(); }, () => {});
+}
+function visitStop() { if (visOff) { visOff(); visOff = null; } visDay = null; VIS = new Map(); }
+const hm = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+function visitCard() {
+  const today = dayKey(now()), day = S.visDay || today;
+  if (!S.visOn) return `<div class="card"><h2>Who was online, and when</h2><div class="hint">Only admins can see this. It shows the times each person had the tracker open.</div><div class="line"><button class="btn" data-a="visShow">Show</button></div></div>`;
+  visitWatch(day);
+  const by = new Map(); for (const v of VIS.values()) { if (!v.email || !v.from) continue; if (!by.has(v.email)) by.set(v.email, []); by.get(v.email).push([v.from, v.to || v.from]); }
+  const rows = [...by].sort((a, b) => nameOf(a[0]).localeCompare(nameOf(b[0]))).map(([em, a]) => {
+    a.sort((x, y) => x[0] - y[0]); const m = []; for (const r of a) { const l = m[m.length - 1]; if (l && r[0] - l[1] <= MIN) l[1] = Math.max(l[1], r[1]); else m.push([...r]); }   // join stretches that touch or overlap (two tabs open at once)
+    const tot = m.reduce((s, r) => s + Math.max(1, Math.round((r[1] - r[0]) / MIN)), 0);
+    return `<div class="prow"><span class="nm">${e(nameOf(em))}</span><span class="sm" style="flex:3 1 260px">${m.map(r => { const n = Math.round((r[1] - r[0]) / MIN); return `<span class="mono">${hm(r[0])}${n ? ' to ' + hm(r[1]) : ''}</span> <span class="muted">(${n ? dur(n) : 'under a minute'})</span>`; }).join(', ')}</span><span class="sm muted">${dur(tot)} in all</span></div>`; });
+  return `<div class="card"><div class="line"><h2 class="grow">Who was online, and when</h2><label class="fld" for="visDay">Day<input type="date" id="visDay" data-c="visDay" value="${day}" max="${today}"></label><button class="btn sm" data-a="visHide">Hide</button></div>
+   <div class="hint">Only admins can see this. Times are when the tracker was open and in front of the person, to about a minute. Recording started when this feature was added.</div>
+   ${rows.length ? `<div class="plist">${rows.join('')}</div>` : '<div class="hint">Nobody is recorded for this day.</div>'}</div>`;
+}
+function leave() { visitTick(true); if (S.fb && dataMode) B.commit([{ op: 'delete', path: 'presence/' + S.fb.uid }]).catch(() => {}); }
 function onlineHTML() {
   const t = now(), seen = new Set(), who = [...PRES.values()].filter(p => p.email && t - p.at < ONLINE && !seen.has(p.email) && seen.add(p.email))
     .sort((a, b) => (b.email === S.user) - (a.email === S.user) || nameOf(a.email).localeCompare(nameOf(b.email)));
@@ -99,9 +127,9 @@ function onlineHTML() {
 }
 function drawOnline() { const el = $('#online'); if (el) el.innerHTML = onlineHTML(); }
 setInterval(drawOnline, MIN);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); visitTick(document.hidden); });
 addEventListener('pagehide', leave);
-function stopData() { clearInterval(presT); if (presOff) { presOff(); presOff = null; } PRES = new Map(); dataSubs.forEach(u => u()); dataSubs = []; projSubs.forEach(o => o.forEach(u => u())); projSubs.clear(); dataMode = null;
+function stopData() { clearInterval(presT); clearInterval(visT); visitStop(); if (presOff) { presOff(); presOff = null; } PRES = new Map(); dataSubs.forEach(u => u()); dataSubs = []; projSubs.forEach(o => o.forEach(u => u())); projSubs.clear(); dataMode = null;
   for (const k of [...SRV.keys()]) if (k !== 'config/lab') SRV.delete(k);
   for (const k of [...pending]) if (k !== 'lab') pending.delete(k); }
 function startData(mode) {
@@ -114,6 +142,7 @@ function startData(mode) {
     watch('backlog', blPath(), true)];
   presOff = B.watchCol('presence', null, m => { PRES = m; drawOnline(); }, () => {});
   beat(); presT = setInterval(beat, BEAT);
+  visitTick(); visT = setInterval(visitTick, MIN);
 }
 function stopAll() { stopData(); subs.forEach(u => u()); subs = []; SRV.clear(); pending.clear(); BASE = new Map(); S.ready = false; S.labErr = null; }
 
@@ -701,7 +730,7 @@ V.lab = () => {
         <select id="newRole" aria-label="Role"><option value="members">Member</option><option value="supervisors">Supervisor</option></select>
         <button class="btn pri" data-a="addMember">Add</button></div><span class="err" id="memberErr"></span>` : ''}
     </div>
-    ${cl ? mailCard() : ''}
+    ${cl ? mailCard() : ''}${isAdmin() ? visitCard() : ''}
     <div class="card"><h2>Where the data lives</h2><div class="flow"><div><b>The website</b>The app code only. No samples, notes, protocols or results are in the code, so a public page gives nothing away.</div><div><b>Google sign-in</b>Each person signs in with their Wits account. The page is an empty shell until they do.</div><div><b>The lab database</b>All records, held in Johannesburg. Projects are open only to their members and supervisors; protocols, reagents and duties are shared by the whole lab.</div></div>
       <div class="hint">Result files are not stored here: each run keeps links to where its files are, for example in Google Drive.</div></div>
   </div><div class="stack"><h3>Projects and who can see them</h3>
@@ -1115,6 +1144,7 @@ const A = {
   tgAdd: d => { const x = X(d.x), t = clean(val('tg' + d.x)), r = val('tr' + d.x); if (!t || x.targets.includes(t)) return false; x.targets.push(t); if (r) (x.treag = x.treag || {})[t] = r; },
   pxAdd: () => { const p = P(val('pxProto')); if (!p) return false; const ts = [...new Set(val('pxT').split(',').map(clean).filter(Boolean))], x = { id: nid(), name: clean(val('pxName')) || p.name, proto: p.id, proj: S.project }; if (ts.length) x.targets = ts; else if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; }
     DB.exps.push(x); proj().exps.push(x.id); toast(x.name + (x.sched ? ` added with ${x.targets.length} rounds. Tick its samples in the grid below.` : ' added. Tick its samples in the grid below.')); },
+  visShow: () => { S.visOn = true; }, visHide: () => { S.visOn = false; S.visDay = ''; visitStop(); },
   planClear: () => { S.planType = ''; S.planGroup = ''; S.planQ = ''; },
   asgCol: d => { const c = planCols()[+d.i], ks = planRows().map(m => key(c.x.id, c.t, m.id)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
   asgRow: d => { const ks = planCols().map(c => key(c.x.id, c.t, d.m)).filter(k => !IDX.has(k)), all = ks.every(k => DB.asg.has(k)); ks.forEach(k => all ? DB.asg.delete(k) : DB.asg.add(k)); },
@@ -1217,6 +1247,7 @@ document.addEventListener('change', ev => {
   if (c === 'pick') { el.checked ? S.picked.add(el.dataset.m) : S.picked.delete(el.dataset.m); }
   if (c === 'asg') { el.checked ? DB.asg.add(el.dataset.k) : DB.asg.delete(el.dataset.k); commit(); return; }
   if (c === 'planX') S.planX = el.value;
+  if (c === 'visDay') S.visDay = el.value;
   if (c === 'planType') S.planType = el.value;
   if (c === 'planGroup') S.planGroup = el.value;
   if (c === 'planQ') S.planQ = el.value.trim();

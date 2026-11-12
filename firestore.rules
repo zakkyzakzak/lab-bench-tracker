@@ -123,6 +123,14 @@ service cloud.firestore {
         && request.resource.data.site is string && request.resource.data.site.size() < 200;
       allow read, update, delete: if false;
     }
+    // When each person had the site open. Each person writes only their own entries (the ID starts
+    // with their own user ID); only admins can read them.
+    match /visits/{id} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isMember() && id.matches(request.auth.uid + '-[0-9]+')
+        && request.resource.data.email == email()
+        && request.resource.data.keys().hasOnly(['email', 'day', 'from', 'to']);
+    }
     match /notices/{id} {
       allow read: if isMember() && (resource.data.to == email() || isSup());
       allow create: if isMember() && request.resource.data.by == email();
