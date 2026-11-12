@@ -269,7 +269,10 @@ function newSession(projId, exp, target, mice, nodeId, revN, by) {
 const visProj = () => DB.projects;
 const proj = () => PR(S.project);
 const projExps = () => proj() ? proj().exps.map(X).filter(Boolean) : [];
-const notice = (to, text) => { if (to && to !== S.user) DB.notices.push({ id: nid(), to, at: now(), text, by: S.user }); };
+const notice = (to, text) => { if (to && to !== S.user) DB.notices.push({ id: nid(), to, at: now(), text, by: S.user, mailedAt: null }); };
+/* mailedAt stays null until the lab's mail sheet has emailed the notice */
+const inbox = () => DB.notices.filter(n => n.to === S.user && !n.cleared);
+const tm = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const noticeSup = text => sups().forEach(u => notice(u, text));
 const noProj = () => `<div class="card"><h2>No study yet</h2><div class="hint">A study holds your samples, the experiments planned on them and your weekly targets. Create one to get started.</div><div class="line"><button class="btn pri" data-a="newStudy">New study</button></div></div>`;
 
@@ -510,6 +513,12 @@ V.targets = () => {
   return `<div class="cols"><div class="stack">${progHTML()}${up.map(card).join('') || '<div class="card hint">Nothing planned from this week on.</div>'}${past.length ? '<h3>Earlier weeks</h3>' + past.map(card).join('') : ''}</div><div class="stack">${right}</div></div>`;
 };
 
+function mailCard() {
+  const t = DB.notices.filter(n => n.test && n.to === S.user).sort(byAt).pop();
+  return `<div class="card"><h2>Email notices</h2><div class="hint">Every notice in someone's Inbox is also emailed to their Wits address by the lab's mail sheet, which checks about once a minute. That includes the note a person gets when they are added to the lab, with the link to the tracker.</div>
+    <div class="line"><button class="btn" data-a="mailTest">Send me a test email</button><span class="sm grow">${!t ? '<span class="muted">No test waiting.</span>' : t.mailedAt ? `<b>Test emailed</b> on ${dt(t.mailedAt)} at ${tm(t.mailedAt)} to ${e(S.user)}. Check your email.` : `<span class="muted">Test queued at ${tm(t.at)}. Waiting for the mail sheet to pick it up…</span>`}</span></div>
+    ${t && !t.mailedAt && now() - t.at > 3 * MIN ? '<div class="err">Nothing has picked the test up after 3 minutes. Check that the mail sheet is set up and switched on (menu Lab mail in the sheet).</div>' : ''}</div>`;
+}
 V.lab = () => {
   const L = DB.lab, cl = canLab(), people = allPeople();
   const pRow = em => `<div class="prow"><span class="nm">${e(nameOf(em))}</span><span class="sm muted mono">${e(em)}</span>${flag(roleOf(em) === 'Supervisor' ? 'info' : roleOf(em) === 'Admin' ? 'ok' : '', roleOf(em))}
@@ -529,6 +538,7 @@ V.lab = () => {
         <select id="newRole" aria-label="Role"><option value="members">Member</option><option value="supervisors">Supervisor</option></select>
         <button class="btn pri" data-a="addMember">Add</button></div><span class="err" id="memberErr"></span>` : ''}
     </div>
+    ${cl ? mailCard() : ''}
     <div class="card"><h2>Where the data lives</h2><div class="flow"><div><b>The website</b>The app code only. No samples, notes, protocols or results are in the code, so a public page gives nothing away.</div><div><b>Google sign-in</b>Each person signs in with their Wits account. The page is an empty shell until they do.</div><div><b>The lab database</b>All records, held in Johannesburg. Projects are open only to their members and supervisors; protocols, reagents and duties are shared by the whole lab.</div></div>
       <div class="hint">Result files are not stored here: each run keeps links to where its files are, for example in Google Drive.</div></div>
   </div><div class="stack"><h3>Projects and who can see them</h3>
@@ -681,8 +691,8 @@ function modalHTML() {
      <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="newStudySave">Create study</button></div>`;
   }
   if (m.type === 'inbox') {
-    const ns = DB.notices.filter(n => n.to === S.user).reverse();
-    h = `<h2>Inbox for ${e(users[S.user].name)}</h2>${ns.map(n => `<div class="sm" style="border-top:1px solid var(--line);padding-top:8px"><span class="muted">${dt(n.at)}</span><br>${e(n.text)}</div>`).join('') || '<div class="hint">Nothing here.</div>'}<div class="hint">Notices show here only; they are not sent by email.</div><div class="foot">${ns.length ? '<button class="btn" data-a="inboxClear">Clear all</button>' : ''}<button class="btn" data-a="close">Close</button></div>`;
+    const ns = inbox().reverse();
+    h = `<h2>Inbox for ${e(users[S.user].name)}</h2>${ns.map(n => `<div class="sm" style="border-top:1px solid var(--line);padding-top:8px"><span class="muted">${dt(n.at)}${n.mailedAt ? ' · emailed' : ''}</span><br>${e(n.text)}</div>`).join('') || '<div class="hint">Nothing here.</div>'}<div class="hint">Each notice is also emailed to your Wits address when the lab's email notices are switched on.</div><div class="foot">${ns.length ? '<button class="btn" data-a="inboxClear">Clear all</button>' : ''}<button class="btn" data-a="close">Close</button></div>`;
   }
   return `<div class="modal" data-a="closeBg"><div class="dlg" role="dialog" aria-modal="true">${h}</div></div>`;
 }
@@ -725,7 +735,7 @@ function render() {
   const vis = visProj();
   if (proj() && S.selExp === undefined) S.selExp = proj().exps[0];
   const keep = S.tab === render.tab ? [...document.querySelectorAll('#app .scroll, #app .rows')].map(el => [el.scrollTop, el.scrollLeft]) : []; render.tab = S.tab;
-  const lock = lockFor(S.user), nn = DB.notices.filter(n => n.to === S.user).length;
+  const lock = lockFor(S.user), nn = inbox().length;
   $('#app').innerHTML = `<header class="top"><span class="brand">Lab Bench Tracker</span><span class="sp"></span>
     ${vis.length ? `<label class="fld" for="selProj">Project<select id="selProj" data-c="proj">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select></label>` : ''}
     <span class="sm">${e(S.fb.displayName || S.user)}</span>${flag(isSup() ? 'info' : isAdmin() ? 'ok' : '', roleOf(S.user))}
@@ -765,7 +775,7 @@ const A = {
     const em = low($('#newMember').value), role = $('#newRole').value;
     if (!WITS.test(em)) { $('#memberErr').textContent = 'Enter a Wits email address.'; return false; }
     const L = DB.lab; L.members = [...new Set([...(L.members || []), em])]; if (role === 'supervisors') L.supervisors = [...new Set([...sups(), em])];
-    notice(em, `${users[S.user].name} added you to the lab.`); toast(em + ' added.');
+    notice(em, `${users[S.user].name} added you to the ${DB.lab.name || 'lab'} on Lab Bench Tracker, the lab's bench tracker. Sign in with this Wits address to get started.`); toast(em + ' added.');
   },
   rmMember: d => { DB.lab.members = (DB.lab.members || []).filter(u => u !== d.em); toast(d.em + ' removed from the lab.'); },
   pickProj: d => { S.project = d.id; S.selMouse = null; S.picked.clear(); S.draft = newDraft(); S.tpick = null; S.selExp = undefined; S.planX = ''; },
@@ -777,7 +787,9 @@ const A = {
   },
   tab: d => { S.tab = d.k; S.edit = null; },
   inbox: () => S.modal = { type: 'inbox' }, close: () => S.modal = null, closeBg: (d, el, ev) => { if (ev.target !== el) return false; S.modal = null; },
-  inboxClear: () => { DB.notices = DB.notices.filter(n => n.to !== S.user); },
+  // A notice still waiting to be emailed is only hidden; the mail sheet removes it once it has gone out.
+  inboxClear: () => { DB.notices = DB.notices.filter(n => { if (n.to !== S.user) return true; if (n.mailedAt === null && now() - n.at < 7 * DAY) { n.cleared = now(); return true; } return false; }); },
+  mailTest: () => { if (!canLab()) return false; DB.notices.push({ id: nid(), to: S.user, at: now(), text: 'This is a test from Lab Bench Tracker. If it reached your email inbox, email notices are working.', by: S.user, mailedAt: null, test: true }); toast('Test queued. It should reach your email within a minute or two.'); },
   goExp: d => { S.tab = 'exps'; S.selExp = d.x; S.picked.clear(); }, goMouse: d => { S.tab = 'mice'; S.selMouse = d.m; S.mx = null; },
   goProto: d => { S.tab = 'protos'; S.selProto = d.p; S.selNode = S.variant || null; S.viewRev = null; },
   selMouse: d => { S.selMouse = d.m; S.mx = null; }, mx: d => { S.mx = S.mx === d.x ? null : d.x; },

@@ -23,6 +23,9 @@ its files, for example in Google Drive.
   learns from finished sessions. A missed week must be explained before carrying on.
 - **Lab duties**: duties dealt out fairly each month by a supervisor or admin, with requests.
 
+- **Inbox and email**: every notice shows in the person's Inbox and, once the mail sheet is set
+  up, is emailed to their Wits address, including the invitation when someone is added to the lab.
+
 The app starts empty: there is no example data.
 
 ## Who can see what
@@ -38,6 +41,7 @@ The app starts empty: there is no example data.
 - `firestore.rules`: who can read and write what.
 - `firebase.json`, `.firebaserc`: Firebase Hosting and rules deployment.
 - `publish.cmd`: push to GitHub and deploy to Firebase in one step.
+- `apps-script/`: the Google Sheet script that emails each notice (see `apps-script/SETUP.md`).
 
 ## Where data is stored (Firestore)
 - `config/lab`: lab name, admins, members, supervisors.
