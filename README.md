@@ -46,6 +46,8 @@ The app starts empty: there is no example data.
 - `firestore.rules`: who can read and write what.
 - `firebase.json`, `.firebaserc`: Firebase Hosting and rules deployment.
 - `publish.cmd`: push to GitHub and deploy to Firebase in one step.
+- `docs/protocol-import-handover.md`: instructions for turning written methods into a file that
+  **Protocols > Import from a file** can read. The files themselves hold methods, so never commit them.
 - `apps-script/`: the Google Sheet script that emails each notice (see `apps-script/SETUP.md`).
 
 ## Where data is stored (Firestore)

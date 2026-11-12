@@ -295,6 +295,43 @@ function preLine(x, m) {
   const pr = PR(x.proj), ss = srcs(P(x.proto)); if (!ss.length) return '';
   return `<div class="sm muted">Previous step: ${ss.map(q => { const s = doneSess(pr, q, m), k = priorOf(pr, q, m); return e(q.name) + (s ? ' done ' + dty(s.doneAt) : k ? ` recorded as already done${k.at ? ' on ' + dty(k.at) : ', date not known'} (by ${e(users[k.by].name)})` : ' not recorded'); }).join(' · ')}</div>`;
 }
+/* ---------------- importing protocols from a file ---------------- */
+/* The file format is described in docs/protocol-import-handover.md. Everything read from the file is
+   treated as plain text and numbers, cut to sensible lengths, and only becomes ordinary protocol steps. */
+function parseImport(text) {
+  let t = String(text).trim();
+  if (!t.startsWith('{')) { const m = /```(?:json)?\s*([\s\S]*?)```/.exec(t); if (m) t = m[1].trim(); else { const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a >= 0 && b > a) t = t.slice(a, b + 1); } }
+  let j; try { j = JSON.parse(t); } catch (_) { throw new Error('it is not valid JSON'); }
+  if (!j || !Array.isArray(j.protocols)) throw new Error('it has no "protocols" list');
+  const str = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n), num = (v, d, max) => { const x = +v; return v !== null && v !== '' && isFinite(x) && x >= 0 ? Math.min(x, max) : d; };
+  const step = q => {
+    q = q && typeof q === 'object' ? q : {};
+    const type = /^wash/i.test(q.type) ? 'wash' : /^inc/i.test(q.type) ? 'inc' : 'other', b = blank(type, KINDS.find(k => low(k) === low(q.kind)) || 'Custom');
+    b.t = str(q.description, 300); b.rn = q.reagentDependsOnTarget ? '' : str(q.reagent, 80); b.reagent = q.reagentDependsOnTarget ? '@target' : '';
+    b.vol = num(q.amount, 0, 1e6); b.unit = /^(µl|μl|ul)$/i.test(str(q.unit, 5)) ? 'µL' : 'mL'; b.per = q.per === 'batch' ? 'batch' : 'sample';
+    if (type === 'wash') { b.reps = Math.max(1, Math.round(num(q.times, 1, 99))); b.each = num(q.minutesEach, 0, 1e5); b.m = b.reps * b.each; b.w = false; }
+    else { b.m = num(q.minutes, 0, 1e5); b.w = !!q.handsFree; }
+    b.checks = (Array.isArray(q.checks) ? q.checks : []).map(c => str(c, 200)).filter(Boolean).slice(0, 20); b.note = str(q.comment, 500);
+    return b;
+  };
+  const steps = a => (Array.isArray(a) ? a : []).slice(0, 200).map(step);
+  return j.protocols.slice(0, 200).map(p => {
+    p = p && typeof p === 'object' ? p : {}; const name = str(p.name, 120); if (!name) return null;
+    const vs = Array.isArray(p.variants) && p.variants.length ? p.variants.slice(0, 20).map(v => ({ name: str(v && v.name, 60) || 'Variant', steps: steps(v && v.steps) })) : [{ name: 'Standard', steps: steps(p.steps) }];
+    return { name, source: str(p.source, 200), rel: !!p.requiresPrevious, prev: (Array.isArray(p.previousProtocols) ? p.previousProtocols : []).map(n => str(n, 120)).filter(Boolean).slice(0, 20), variants: vs };
+  }).filter(Boolean);
+}
+const nameTaken = n => DB.protocols.some(q => low(q.name) === low(n));
+function importHTML(m) {
+  const names = new Set(); m.list.forEach(p => p.variants.forEach(v => v.steps.forEach(q => { if (q.rn && !DB.reagents.some(r => low(r.name) === low(q.rn))) names.add(low(q.rn)); })));
+  return `<h2>Import protocols</h2><div class="sm muted">From <span class="mono">${e(m.file)}</span> · ${m.list.length} protocol${m.list.length === 1 ? '' : 's'} found. Tick the ones to bring into the lab library.</div>
+   <div class="stack" style="max-height:50vh;overflow:auto">${m.list.map((p, i) => { const n = p.variants.reduce((a, v) => a + v.steps.length, 0), dup = nameTaken(p.name);
+     return `<label class="line" style="border-top:1px solid var(--line);padding-top:8px;align-items:flex-start"><input type="checkbox" class="impCk" value="${i}" ${m.pick.has(i) ? 'checked' : ''}><span class="grow"><b>${e(p.name)}</b><br><span class="sm muted">${n} step${n === 1 ? '' : 's'}${p.variants.length > 1 ? ' in ' + p.variants.length + ' variants' : ''}${p.rel || p.prev.length ? ' · reliant' + (p.prev.length ? ', after ' + e(p.prev.join(', ')) : '') : ''}${p.source ? ' · ' + e(p.source) : ''}</span>${dup ? `<br><span class="sm" style="color:var(--warn)">A protocol with this name is already in the library. If ticked, it comes in as "${e(p.name)} (imported)".</span>` : ''}${n ? '' : '<br><span class="sm" style="color:var(--warn)">No steps were found for this one.</span>'}</span></label>`; }).join('')}</div>
+   ${names.size ? `<div class="hint">${names.size} reagent name${names.size === 1 ? ' is' : 's are'} not in the lab's reagent list. They come in as typed names, which you can link to the list afterwards from each protocol's page.</div>` : ''}
+   <div class="hint">Nothing is changed in protocols you already have. Imported protocols start at rev 1 and can be edited like any other.</div>
+   <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="impSave">Import the ticked protocols</button></div>`;
+}
+
 /* reagents typed by name in this protocol, each with a way to tie it to the lab's reagent list afterwards */
 function linkHTML(p) {
   const names = typedNames(p); if (!names.length) return '';
@@ -529,7 +566,7 @@ V.protos = () => {
       <div class="who"><span class="mono">${e(vname(p, n))}</span> · rev ${r.n} of ${cur(n).n} · ${dur(tot(r.steps))} in total · ${dur(hands(r.steps))} hands-on · longest hands-free stretch ${dur(maxW(r.steps))}</div>
       ${S.edit ? '' : `<div class="line">${inProj(p) || !proj() ? '' : `<button class="btn sm pri" data-a="addProj">Add to ${e(proj().name)}</button>`}${leaf && isCur ? `<button class="btn sm ${inProj(p) ? 'pri' : ''}" data-a="edStart">${r.steps.length ? 'Edit steps' : 'Build steps'}</button><button class="btn sm" data-a="split">Split into sub-variants</button>` : ''}<button class="btn sm" data-a="addVar">Add a variant</button><button class="btn sm" data-a="print">Print view</button></div>`}</div><div class="body">${body}</div>`;
   }
-  return `<div class="split ${p ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools"><button class="btn pri" data-a="newProto">Create new protocol</button></div><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
+  return `<div class="split ${p ? 'has-sel' : ''}"><aside class="pane-list"><div class="tools"><button class="btn pri" data-a="newProto">Create new protocol</button><button class="btn" data-a="impPick">Import from a file</button><input type="file" id="impFile" accept=".json,.md,.txt,application/json,text/markdown,text/plain" hidden></div><div class="rows">${list}</div></aside><main class="pane-detail">${det}</main></div>`;
 };
 
 V.reag = () => `<div class="cols"><div class="stack">${DB.reagents.map(r => {
@@ -741,6 +778,7 @@ function modalHTML() {
      <div class="line"><button class="btn pri" data-a="preDone">Record as done and start</button></div>
      <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn" data-a="start" data-force="1">Start anyway</button></div>`;
   }
+  if (m.type === 'imp') h = importHTML(m);
   if (m.type === 'newProto') {
     h = `<h2>Create new protocol</h2><label>Name<input type="text" id="npName" placeholder="e.g. Oil Red O staining"></label>
      <div class="hint">That is all it needs. You build the steps next, and it joins the lab library where everyone in the lab can see it and add it to their project.</div>
@@ -995,6 +1033,25 @@ const A = {
     const told = kind === 'once' || DB.rota[k]; if (told) who.forEach(u => notice(u, `You have a new lab duty: ${nm}.`)); toast(told ? nm + ' goes to ' + (who.map(u => users[u].name).join(' and ') || 'nobody yet') + '.' : nm + ' added. It is dealt out with the rest of the month.');
   },
   rgAdd: d => { R(d.r).bottles++; toast('One more bottle of ' + R(d.r).name + ' recorded.'); },
+  impPick: () => { $('#impFile').click(); return false; },
+  impSave: () => {
+    const m = S.modal, chosen = m.list.filter((_, i) => m.pick.has(i)); if (!chosen.length) return mErr('Tick at least one protocol.');
+    const made = new Map(), note = 'Imported from ' + m.file;
+    for (const p of chosen) {
+      const id = nid(), name = nameTaken(p.name) ? p.name + ' (imported)' : p.name;
+      const nodes = p.variants.map((v, i) => ({ id: id + (i ? '-' + i : '-s'), parent: null, name: v.name, revs: [mkRev(1, now(), S.user, note + (p.source ? ' (' + p.source + ')' : ''), v.steps.map(q => {
+        const z = { ...q, checks: [...q.checks] }, hit = z.rn && DB.reagents.find(r => low(r.name) === low(z.rn));
+        if (z.rn) { z.reagent = hit ? hit.id : '@name'; z.rname = z.rn; } delete z.rn; return z; }))] }));
+      const rec = { id, name, by: S.user, nodes }; DB.protocols.push(rec); made.set(low(p.name), rec); p.rec = rec;
+    }
+    for (const p of chosen) {                       // "needs a sample from" is worked out once everything is in
+      const from = p.prev.map(n => made.get(low(n)) || DB.protocols.find(q => low(q.name) === low(n))).filter(q => q && q !== p.rec).map(q => q.id);
+      if (p.rel || from.length) { p.rec.rel = true; p.rec.from = [...new Set(from)]; }
+      delete p.rec;
+    }
+    const first = made.values().next().value; S.selProto = first.id; S.selNode = first.nodes[0].id; S.viewRev = null; S.edit = null; S.modal = null;
+    toast(`Imported ${chosen.length} protocol${chosen.length === 1 ? '' : 's'}. Open each one to check the steps.`);
+  },
   rgLink: d => {
     const p = P(S.selProto), r = R(val(d.sel)); if (!p || !r) return false; let k = 0;
     for (const n of p.nodes) for (const rv of n.revs) for (const q of rv.steps) if (typed(q) && low(typed(q)) === low(d.n)) { q.reagent = r.id; k++; }
@@ -1063,7 +1120,17 @@ document.addEventListener('change', ev => {
   commit(); render();
 });
 document.addEventListener('change', ev => {
-  const el = ev.target; if (!S.edit || !el.matches || !el.matches('#edRows [data-f=reagent]')) return;
+  const el = ev.target;
+  if (el.id === 'impFile') {
+    const f = el.files && el.files[0]; if (!f) return;
+    if (f.size > 2e6) { toast('That file is too large to be a protocol file.'); return; }
+    f.text().then(t => { const list = parseImport(t); if (!list.length) throw new Error('it has no protocols in it');
+      S.modal = { type: 'imp', file: f.name.slice(0, 80), list, pick: new Set(list.map((p, i) => nameTaken(p.name) ? -1 : i).filter(i => i >= 0)) }; render(); })
+      .catch(err => toast('That file could not be used: ' + (err.message || 'it could not be read') + '.'));
+    return;
+  }
+  if (el.classList && el.classList.contains('impCk') && S.modal && S.modal.type === 'imp') { el.checked ? S.modal.pick.add(+el.value) : S.modal.pick.delete(+el.value); return; }
+  if (!S.edit || !el.matches || !el.matches('#edRows [data-f=reagent]')) return;
   const i = el.closest('.blk').dataset.i; syncEdit(); render();
   const box = document.querySelector(`#edRows .blk[data-i="${i}"] [data-f=rname]`); if (box) box.focus();
 });
