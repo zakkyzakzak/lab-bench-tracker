@@ -252,10 +252,16 @@ function commit() {
     else if (o.op === 'set') SRV.set(o.path, o.data);
     else { const d = { ...(SRV.get(o.path) || {}) }; for (const k in o.data) { if (o.data[k] === B.DEL) delete d[k]; else d[k] = o.data[k]; } SRV.set(o.path, d); }
   }
-  B.commit(ops).catch(err => {
-    toast(errMsg(err));
-    for (const [path, v] of undo) { if (v === undefined) SRV.delete(path); else SRV.set(path, v); }
-    lastSig = ''; rebuild();
+  B.commit(ops).catch(async first => {
+    // The changes are sent together, so one refused change stops them all. Try them again one at a time:
+    // whatever can be saved is saved, and only what was really refused is put back and reported.
+    const bad = [];
+    for (let i = 0; i < ops.length; i++) { try { await B.commit([ops[i]]); } catch (err) { bad.push({ i, path: ops[i].path, op: ops[i].op, fields: ops[i].op === 'update' ? Object.keys(ops[i].data).join(', ') : '', code: (err && err.code) || '', msg: (err && err.message) || String(err) }); } }
+    if (!bad.length) return;
+    for (const b of bad) { const [path, v] = undo[b.i]; if (v === undefined) SRV.delete(path); else SRV.set(path, v); }
+    S.fail = { at: now(), of: ops.length, bad: bad.slice(0, 8), more: Math.max(0, bad.length - 8), first: (first && first.code) || '' };
+    console.error('Not saved', bad);
+    lastSig = ''; rebuild(); render();
   });
 }
 function fixSel() {
@@ -1210,6 +1216,9 @@ function render() {
     <span class="sm">${e(S.fb.displayName || S.user)}</span>${flag(isSup() ? 'info' : isAdmin() ? 'ok' : '', S.asMember && realAdmin() ? 'Member view' : roleOf(S.user))}
     ${realAdmin() ? `<button class="btn sm" data-a="viewAs" title="Switch between what an admin sees and what an ordinary member sees">${S.asMember ? 'Back to admin view' : 'See as a member'}</button>` : ''}
     <button class="btn" data-a="inbox">Inbox ${nn ? flag('info', nn) : ''}</button><button class="btn" data-a="signout">Sign out</button></header>
+   ${S.fail ? `<section class="lock" role="alert"><div class="line"><h2 class="grow">${S.fail.bad.length + S.fail.more} of ${S.fail.of} change${S.fail.of === 1 ? '' : 's'} could not be saved</h2><button class="btn sm" data-a="failOk">Dismiss</button></div>
+     <div class="sm">What was refused has been put back as it was${S.fail.of > S.fail.bad.length + S.fail.more ? '; the rest was saved' : ''}. If this keeps happening, send a screenshot of this box.</div>
+     ${S.fail.bad.map(b => `<div class="sm mono" style="white-space:normal;word-break:break-word">${e(b.op)} ${e(b.path)}${b.fields ? ' [' + e(b.fields) + ']' : ''} → ${e(b.code || 'error')}: ${e(b.msg.slice(0, 220))}</div>`).join('')}${S.fail.more ? `<div class="sm">and ${S.fail.more} more</div>` : ''}</section>` : ''}
    <nav class="nav2" aria-label="Sections">
     <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.filter(t => t[0] !== 'monitor' || (proj() && proj().mon && proj().mon.on)).map(tabBtn).join('')}</div></div>
     <div class="navg lab ${inStudy ? '' : 'here'}"><div class="navh"><span class="navt">Whole lab</span><span class="sm muted">shared by everyone in ${e(labName)}</span></div><div class="tabs">${LAB_TABS.map(tabBtn).join('')}</div></div>
@@ -1403,6 +1412,7 @@ const A = {
   pxAdd: () => { const p = P(val('pxProto')); if (!p) return false; const ts = [...new Set(val('pxT').split(',').map(clean).filter(Boolean))], x = { id: nid(), name: clean(val('pxName')) || p.name, proto: p.id, proj: S.project }; if (ts.length) x.targets = ts; else if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; }
     DB.exps.push(x); proj().exps.push(x.id); toast(x.name + (x.sched ? ` added with ${x.targets.length} rounds. Tick its samples in the grid below.` : ' added. Tick its samples in the grid below.')); },
   visShow: () => { S.visOn = true; }, visHide: () => { S.visOn = false; S.visDay = ''; visitStop(); },
+  failOk: () => { S.fail = null; },
   sureNo: () => { S.modal = (S.modal && S.modal.back) || null; },
   monOn: () => { const p = proj(); p.mon = { tx: 6, alert: 15, total: 200, agents: [], groups: {}, ...(p.mon || {}), on: true }; S.tab = 'monitor'; S.monView = 'setup'; toast('Monitoring is on for ' + p.name + '. Set the rules, then record a visit or import your sheet.'); },
   monOff: () => { proj().mon.on = false; S.tab = 'plan'; },
