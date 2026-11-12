@@ -755,7 +755,12 @@ const gate = inner => `<div class="gate"><div class="card"><div class="brand">La
 function gateView() {
   if (S.fb === undefined) return gate('<div class="hint">Loading…</div>');
   if (!S.fb) return gate(`<div class="hint">Sign in with your Wits Google account (@students.wits.ac.za or @wits.ac.za).</div>
-    <button class="btn pri" data-a="signin">Sign in with Google</button>`);
+    <button class="btn pri" data-a="signin">Sign in with Google</button>
+    <hr style="border:0;border-top:1px solid var(--line);margin:6px 0">
+    ${S.linkSent ? `<div class="todo sm"><span>If <b>${e(S.linkSent)}</b> is in the lab, a sign-in link is on its way from the lab's own mailbox. It can take up to two minutes. Open the link in this same browser.</span></div><button class="btn sm" data-a="linkAgain">Use a different address</button>`
+      : `<div class="hint">No Google account on your Wits address (most staff addresses)? Get a sign-in link by email instead.</div>
+    <label>Wits email address<input type="email" id="linkEmail" placeholder="name@wits.ac.za" autocomplete="email"></label>
+    <div class="line"><button class="btn" data-a="linkAsk">Email me a sign-in link</button><span class="err" id="linkErr"></span></div>`}`);
   if (!WITS.test(S.fb.email || '')) return gate(`<div class="err">${e(S.fb.email)} is not a Wits account.</div>
     <div class="hint">Sign out and choose your Wits Google account.</div><button class="btn" data-a="signout">Sign out</button>`);
   if (S.labErr) return gate(`<div class="err">${e(S.labErr)}</div><button class="btn" data-a="signout">Sign out</button>`);
@@ -819,6 +824,16 @@ function syncEdit() {
 const mErr = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; };
 const A = {
   signin: () => { B.signIn().catch(err => { if (err.code !== 'auth/popup-closed-by-user') toast(errMsg(err)); }); return false; },
+  linkAsk: () => {
+    const em = low(val('linkEmail')), bad = t => { $('#linkErr').textContent = t; return false; };
+    if (!WITS.test(em)) return bad('Type your full Wits address.');
+    try { localStorage.setItem('linkEmail', em); } catch (_) {}
+    $('#linkErr').textContent = 'Asking…';
+    B.commit([{ op: 'set', path: 'signinRequests/' + nid(), data: { email: em, site: location.origin + location.pathname, at: now() } }])
+      .then(() => { S.linkSent = em; render(); }, err => { const el = $('#linkErr'); if (el) el.textContent = errMsg(err); });
+    return false;
+  },
+  linkAgain: () => { S.linkSent = null; },
   signout: () => { leave(); stopAll(); B.signOutAll().then(() => location.reload()); return false; },
   setupLab: () => {
     const sup = low($('#supEmail').value), name = $('#labName').value.trim() || 'Kaur lab';
@@ -1048,6 +1063,7 @@ function openWelcome() {
 }
 
 /* ---------------- sign-in ---------------- */
+B.finishLink().then(r => { if (r && r.error) toast('That sign-in link has expired or was already used. Ask for a new one.'); });
 S.fb = undefined;
 B.onAuth(u => {
   stopAll(); S.fb = u || null; S.user = low(u?.email); rebuild();

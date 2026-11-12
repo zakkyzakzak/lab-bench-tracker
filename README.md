@@ -8,7 +8,8 @@ Records live in Firebase (Firestore, project `lab-bench-tracker`, Johannesburg),
 its files, for example in Google Drive.
 
 ## What it does
-- Sign-in with a Wits Google account only. One-time lab setup by the lab owner, who becomes admin;
+- Sign-in with a Wits account only: with Google, or by a sign-in link emailed from the lab's mail
+  sheet for Wits addresses that have no Google account. One-time lab setup by the lab owner, who becomes admin;
   Prof Kaur is set as supervisor and sees every project.
 - **Lab and access**: lab members and supervisors, projects and who is in them.
 - **Protocols**: one lab-wide library. Protocols are built from blocks (wash, incubation, other),

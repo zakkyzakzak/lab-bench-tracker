@@ -35,6 +35,24 @@ The script reads the tracker's database, which only works from inside the tracke
    sheet with status `sent`, and the email arrives. To skip the wait, use
    **Lab mail > Check for mail now** in the sheet.
 
+## 6. Sign-in links (for Wits addresses with no Google account)
+Staff addresses often cannot use "Sign in with Google". The sign-in screen has **Email me a sign-in
+link** for them; the link is made and emailed by this sheet, from your own mailbox.
+
+One-time, to switch it on:
+1. In the Firebase console open **Authentication > Sign-in method**, click **Email/Password**, turn on
+   **Email/Password** and **Email link (passwordless sign-in)**, and save.
+2. On the same page under **Settings > Authorised domains**, check that `zakkyzakzak.github.io` is listed
+   (add it if not).
+3. If you set the script up before this feature existed: paste in the new `Code.gs` and
+   `appsscript.json`, save, reload the sheet, and choose **Lab mail > Set up and switch on** again.
+   Google asks for one more permission (manage the tracker's sign-in). Approve it.
+
+How it behaves: a link is only sent to an address already listed in the lab, at most one every
+3 minutes per address, and can take up to two minutes to arrive. Each request shows in the
+**Mail queue** sheet as `sign-in link` with `sent`, `skipped` or `failed` and the reason. The link
+itself is never written to the sheet.
+
 ## How it works
 - Every minute the script copies notices that have not been emailed into the **Mail queue** sheet
   as `pending`, emails each pending row, and marks it `sent`. The Status column is its memory.

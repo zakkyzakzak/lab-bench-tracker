@@ -2,7 +2,7 @@
 // app.js talks only to this file, so the rest of the app has no Firebase calls in it.
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut }
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, isSignInWithEmailLink, signInWithEmailLink }
   from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot,
   query, where, writeBatch, deleteField, serverTimestamp, terminate, clearIndexedDbPersistence }
@@ -23,6 +23,21 @@ export const ts = () => serverTimestamp();
 export const onAuth = cb => onAuthStateChanged(auth, u => cb(u && { uid: u.uid, email: u.email, displayName: u.displayName }));
 export async function signIn() {
   await signInWithPopup(auth, new GoogleAuthProvider().setCustomParameters({ prompt: 'select_account' }));
+}
+// If the page was opened from an emailed sign-in link, finish signing in with it.
+// Returns null when there is no link, otherwise { ok } or { error }.
+export async function finishLink() {
+  const href = location.href;
+  if (!isSignInWithEmailLink(auth, href)) return null;
+  let email = null; try { email = localStorage.getItem('linkEmail'); } catch (_) {}
+  if (!email) email = prompt('Type your Wits email address to finish signing in');
+  history.replaceState(null, '', location.pathname);
+  if (!email) return { error: 'no-email' };
+  try {
+    await signInWithEmailLink(auth, email.trim().toLowerCase(), href);
+    try { localStorage.removeItem('linkEmail'); } catch (_) {}
+    return { ok: true };
+  } catch (err) { return { error: err.code || String(err) }; }
 }
 export async function signOutAll() {
   await signOut(auth);

@@ -113,6 +113,16 @@ service cloud.firestore {
         && request.resource.data.email == email();
       allow delete: if signedIn() && request.auth.uid == uid;
     }
+    // A request for a sign-in link, made from the sign-in screen before the person is signed in.
+    // Anyone may leave one for a Wits address; nobody can read them. The lab's mail sheet reads
+    // them with the owner's own access and only ever sends a link to someone already in the lab.
+    match /signinRequests/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['email', 'site', 'at'])
+        && request.resource.data.email is string && request.resource.data.email.size() < 100
+        && request.resource.data.email.matches('[^@ ,;]+@(students[.])?wits[.]ac[.]za')
+        && request.resource.data.site is string && request.resource.data.site.size() < 200;
+      allow read, update, delete: if false;
+    }
     match /notices/{id} {
       allow read: if isMember() && (resource.data.to == email() || isSup());
       allow create: if isMember() && request.resource.data.by == email();
