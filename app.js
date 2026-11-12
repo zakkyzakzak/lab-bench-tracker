@@ -232,6 +232,7 @@ function blkHTML(s, i) {
 function builderHTML(p, n) {
   const E = S.edit, first = !cur(n).steps.length;
   return `<div class="bld"><div class="stack"><h3>Build ${e(p.name)} ${e(vname(p, n))}</h3><div class="hint">${first ? 'Add the blocks in the order they are done at the bench.' : `Saving makes rev ${cur(n).n + 1}. Runs already done keep rev ${cur(n).n} and earlier exactly as they were performed.`}</div>
+   ${preHTML(p)}
    <div id="edRows" class="stack">${E.steps.map(blkHTML).join('')}</div>
    <div class="addrow"><b>Step ${E.steps.length + 1}</b><button class="btn sm" data-a="edAdd" data-t="wash">Add wash</button><button class="btn sm" data-a="edAdd" data-t="inc">Add incubation</button><select id="addOther" data-c="addOther" aria-label="Add another kind of step"><option value="">Add other…</option>${KINDS.map(k => `<option>${e(k)}</option>`).join('')}</select></div>
    ${first ? '' : `<label class="sm" for="edNote"><b>What changed and why</b> (required, kept in the history)</label><input type="text" id="edNote" value="${e(E.note)}">`}
@@ -251,6 +252,18 @@ function vlabel(p, n) { if (p.nodes.length === 1) return 'V1.0'; const a = path(
 const vname = (p, n) => vlabel(p, n) + (n.name === 'Standard' ? '' : ' ' + n.name);
 const cur = n => n.revs[n.revs.length - 1];
 const tot = s => s.reduce((a, x) => a + x.m, 0), hands = s => s.reduce((a, x) => a + (x.w ? 0 : x.m), 0), maxW = s => Math.max(0, ...s.filter(x => x.w).map(x => x.m));
+/* what a protocol starts from: "reliant" needs a processed sample from an earlier protocol, "initial" is one that others start from, "entire" runs start to end on its own */
+const srcs = p => p.rel ? (p.from || []).map(P).filter(Boolean) : [];
+const feeds = p => DB.protocols.filter(q => srcs(q).includes(p));
+const relies = (q, p, seen = new Set()) => q === p || (!seen.has(q) && (seen.add(q), srcs(q).some(x => relies(x, p, seen))));
+const ptype = p => p.rel ? 'Reliant' : feeds(p).length ? 'Initial' : 'Entire';
+const names = a => a.map(q => q.name).join(', ');
+const ptypeLine = p => p.rel ? `Reliant protocol: needs a processed sample from ${srcs(p).length ? names(srcs(p)) : 'an earlier protocol (not chosen yet)'}${feeds(p).length ? ', and leads into ' + names(feeds(p)) : ''}` : feeds(p).length ? `Initial protocol: leads into ${names(feeds(p))}` : 'Entire protocol: runs from start to end on its own';
+function preHTML(p) {
+  const opts = DB.protocols.filter(q => !relies(q, p)), from = p.from || [];
+  return `<div class="addrow" style="flex-wrap:wrap"><label class="ck"><input type="checkbox" data-c="preOn" ${p.rel ? 'checked' : ''}> <b>Required from previous step</b></label><span class="sm muted">${p.rel ? 'This protocol starts from a sample that another protocol has already processed.' : 'Tick this if the protocol needs a sample that another protocol has already processed, for example sections from FFPE.'}</span>
+   ${p.rel ? `<div class="stack" style="flex-basis:100%"><div class="sm"><b>Which protocol does the sample come from?</b></div>${opts.length ? `<div class="line" style="flex-wrap:wrap">${opts.map(q => `<label class="ck sm"><input type="checkbox" data-c="preFrom" data-p="${q.id}" ${from.includes(q.id) ? 'checked' : ''}> ${e(q.name)}</label>`).join('')}</div>` : '<div class="hint">There is no other protocol to choose yet. Create the earlier protocol, then come back and tick it here.</div>'}<div class="sm muted">This applies to every variant and is saved as soon as you tick it.</div></div>` : ''}</div>`;
+}
 function walk(p, parent, out = []) { for (const n of kids(p, parent)) { out.push(n); walk(p, n.id, out); } return out; }
 
 /* ---------------- runs ---------------- */
@@ -451,7 +464,7 @@ V.exps = () => {
 
 V.protos = () => {
   const p = P(S.selProto), shown = proj() ? DB.protocols.filter(inProj) : DB.protocols;
-  const list = shown.map(q => `<button class="row ${p === q ? 'sel' : ''}" data-a="selProto" data-p="${q.id}"><span class="nm">${e(q.name)}</span><span class="meta">by ${e(users[q.by].name)} · ${cur(leaves(q)[0]).steps.length} steps</span>${flag('', leaves(q).length > 1 ? leaves(q).length + ' variants' : 'V1.0')}</button>`).join('')
+  const list = shown.map(q => `<button class="row ${p === q ? 'sel' : ''}" data-a="selProto" data-p="${q.id}"><span class="nm">${e(q.name)}</span><span class="meta">by ${e(users[q.by].name)} · ${cur(leaves(q)[0]).steps.length} steps · ${ptype(q)}</span>${flag('', leaves(q).length > 1 ? leaves(q).length + ' variants' : 'V1.0')}</button>`).join('')
     || `<div class="hint" style="padding:12px">${DB.protocols.length ? 'None of the lab protocols is in this study yet. Add one from the lab library.' : 'The lab has no protocols yet. Create the first one.'}</div>`;
   let det = '<div class="empty">Choose a protocol on the left, create a new one, or add one from the lab library.</div>';
   if (p) {
@@ -464,6 +477,7 @@ V.protos = () => {
       <div class="hist"><h3 style="margin-bottom:6px">Revision history</h3>${[...n.revs].reverse().map(q => `<div><button class="lnk" data-a="rev" data-n="${q.n}">rev ${q.n}</button> · ${dt(q.at)} · ${e(users[q.by].name)} · ${e(q.note)} · <span class="muted">${used(n, q)} done run${used(n, q) === 1 ? '' : 's'} pinned to it</span></div>`).join('')}</div>`;
     det = `<div class="hdr"><button class="back" data-a="back">← All protocols</button><div class="name">${e(p.name)}${inProj(p) ? flag('ok', 'In ' + proj().name) : ''}</div>
       <div class="who">Created by ${e(users[p.by].name)} · used in: ${e(usedIn(p))} · shared with everyone in the lab</div>
+      <div class="who">${e(ptypeLine(p))}</div>
       <div class="chips">${walk(p, null).map(q => `<button class="chip ${q === n ? 'view' : ''} ${isLeaf(p, q) ? '' : 'old'}" data-a="selNode" data-n="${q.id}"><span class="mono">${vlabel(p, q)}</span>${q.name === 'Standard' ? '' : ' ' + e(q.name)}</button>`).join('')}</div>
       <div class="who"><span class="mono">${e(vname(p, n))}</span> · rev ${r.n} of ${cur(n).n} · ${dur(tot(r.steps))} in total · ${dur(hands(r.steps))} hands-on · longest hands-free stretch ${dur(maxW(r.steps))}</div>
       ${S.edit ? '' : `<div class="line">${inProj(p) || !proj() ? '' : `<button class="btn sm pri" data-a="addProj">Add to ${e(proj().name)}</button>`}${leaf && isCur ? `<button class="btn sm ${inProj(p) ? 'pri' : ''}" data-a="edStart">${r.steps.length ? 'Edit steps' : 'Build steps'}</button><button class="btn sm" data-a="split">Split into sub-variants</button>` : ''}<button class="btn sm" data-a="addVar">Add a variant</button><button class="btn sm" data-a="print">Print view</button></div>`}</div><div class="body">${body}</div>`;
@@ -680,7 +694,7 @@ function modalHTML() {
   }
   if (m.type === 'print') {
     const p = P(S.selProto), n = p.nodes.find(q => q.id === S.selNode), r = cur(n), rs = [...new Set(r.steps.map(q => q.reagent).filter(Boolean))].map(R).filter(Boolean);
-    h = `<h2>${e(p.name)} <span class="mono">${e(vname(p, n))} rev ${r.n}</span></h2><div class="sm muted">Created by ${e(users[p.by].name)} · printed ${dt(now())} · ${dur(tot(r.steps))} in total</div>
+    h = `<h2>${e(p.name)} <span class="mono">${e(vname(p, n))} rev ${r.n}</span></h2><div class="sm muted">Created by ${e(users[p.by].name)} · printed ${dt(now())} · ${dur(tot(r.steps))} in total</div><div class="sm">${e(ptypeLine(p))}</div>
      <ol class="steps">${r.steps.map(stepLi).join('')}</ol>
      <h3>Reagents</h3>${rs.length ? `<div class="scroll"><table class="mx"><thead><tr><th>Reagent</th><th>Brand</th><th>Supplier</th><th>Pack size</th></tr></thead><tbody>${rs.map(q => `<tr><td>${e(q.name)}</td><td class="g">${e(q.brand || '')}</td><td class="g">${e(q.supplier || '')}</td><td>${q.per} ${e(q.unit)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="hint">No reagents chosen in this protocol.</div>'}
      <div class="hint noprint">Price is left off the printed sheet.</div><div class="foot"><button class="btn" data-a="close">Close</button><button class="btn pri" data-a="printNow">Print</button></div>`;
@@ -933,6 +947,11 @@ document.addEventListener('change', ev => {
   if (c === 'dOff') S.dOff = +el.value;
   if (c === 'variant') S.variant = el.value;
   if (c === 'tick') { const s = sess(el.dataset.id); if (s) s.ticks[el.dataset.k] = el.checked; }
+  if (c === 'preOn' || c === 'preFrom') {
+    syncEdit(); const p = P(S.selProto); if (!p) return;
+    if (c === 'preOn') { if (el.checked) { p.rel = true; p.from = p.from || []; } else { delete p.rel; delete p.from; } }
+    else { const id = el.dataset.p; p.from = (p.from || []).filter(x => x !== id); if (el.checked) p.from.push(id); }
+  }
   if (c === 'addOther') { if (!el.value) return; syncEdit(); S.edit.steps.push(blank('other', el.value)); }
   commit(); render();
 });

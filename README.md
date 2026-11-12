@@ -13,6 +13,8 @@ its files, for example in Google Drive.
 - **Lab and access**: lab members and supervisors, projects and who is in them.
 - **Protocols**: one lab-wide library. Protocols are built from blocks (wash, incubation, other),
   with check boxes, variants (V1.1, V1.1.1, V1.2.0) and revisions. Runs keep the revision they used.
+  A protocol can be marked as needing a processed sample from an earlier protocol (reliant, e.g.
+  IHC after FFPE); the one it starts from shows as initial, and the rest as entire.
 - **Study plan**: samples, experiments taken from the lab protocols (with genes or proteins per
   study), and a grid of which sample gets which experiment.
 - **Experiments / Today**: bench sessions for a batch of samples, step by step, with timers,
