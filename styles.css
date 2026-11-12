@@ -271,6 +271,11 @@ a.lnk{font-weight:600}
 @supports (color:oklch(from red l c h)){.gtag{--ga:oklch(from var(--accent) l c calc(h + var(--h,0)))}}
 .gtag.dk{color:var(--on-accent)}
 .pcard{border-top:3px solid var(--accent)}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:6px}
+.dcol{display:grid;gap:2px;align-content:start;text-align:left;font-size:12px;line-height:1.35;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);cursor:pointer;min-height:64px;transition:transform 140ms var(--ease-out),border-color 150ms ease,background-color 150ms ease}
+.dcol:disabled{cursor:default} .dcol:not(:disabled){border-color:var(--accent);background:var(--accent-soft)} .dcol:not(:disabled):active{transform:scale(.97)}
+.dcol.now b{color:var(--accent)} .dcol.ov{border-color:var(--bad)} .dcol.ov .mono{color:var(--bad)}
+.dtag{font-family:var(--sans);font-size:10px;font-weight:700;color:var(--accent)} .mc.on .dtag{color:inherit}
 .mx.mon td,.mx.res td{padding:3px 5px} .mx.mon input,.mx.res input{padding:4px 6px} .mx.res input{width:110px}
 .mx.mon tr.gone td{opacity:.55} .mx.mon input.odd{border-color:var(--bad);background:var(--bad-soft)}
 .agrow input,.agrow select{min-width:0}

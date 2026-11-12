@@ -495,28 +495,43 @@ function model(xid) {
 }
 const est = (xid, n) => { if (!n) return 0; const m = model(xid); return m.a + m.b * (n - 1); };
 const mdlText = id => { const m = model(id); return `${e(X(id)?.name || '')}: ${dur(m.a)} for one sample, each extra adds about ${m.b.toFixed(1)} min (${m.k ? 'learned from ' + m.k + ' finished session' + (m.k > 1 ? 's' : '') : 'first guess, no sessions yet'})`; };
+const DAYN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const dayOf = (i, m) => { const d = (i.d || {})[m]; return d >= 0 && d < 7 ? d : -1; };
+/* Hours per day for a week. Samples the person has placed on a day count on that day; the rest are packed
+   into whatever room is left from Monday to Friday. */
 function weekLoad(user, week, extra) {
   const its = DB.targets.filter(t => t.user === user && t.week === week && t.status !== 'change').flatMap(t => t.items).concat(extra || []);
-  const bs = its.map(i => est(i.exp, i.mice.length)).sort((a, b) => b - a), days = [0, 0, 0, 0, 0]; let over = false;
-  for (const m of bs) { let d = days.findIndex(x => x + m <= 360); if (d < 0) { d = days.indexOf(Math.min(...days)); over = true; } days[d] += m; }
-  return { days, over, total: bs.reduce((a, b) => a + b, 0) };
+  const days = [0, 0, 0, 0, 0, 0, 0], rest = []; let over = false, placed = 0;
+  for (const i of its) { const by = {}; let un = 0; for (const m of i.mice) { const d = dayOf(i, m); if (d < 0) un++; else by[d] = (by[d] || 0) + 1; } for (const d in by) { days[d] += est(i.exp, by[d]); placed += by[d]; } if (un) rest.push(est(i.exp, un)); }
+  for (const m of rest.sort((a, b) => b - a)) { let d = days.findIndex((x, k) => k < 5 && x + m <= 360); if (d < 0) { d = days.indexOf(Math.min(...days.slice(0, 5))); over = true; } days[d] += m; }
+  if (days.some(x => x > 360)) over = true;
+  return { days, over, total: days.reduce((a, b) => a + b, 0), placed, loose: rest.length };
 }
-function loadHTML(L) { const N = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']; return `<div class="days">${L.days.map((m, i) => `<div class="${m > 360 ? 'ov' : ''}"><span>${N[i]}</span><div class="bar"><i style="width:${Math.min(100, m / 360 * 100)}%"></i></div><span class="mono">${m ? dur(m) : 'free'}</span></div>`).join('')}</div>`; }
+function loadHTML(L) { return `<div class="days">${L.days.map((m, i) => i > 4 && !m ? '' : `<div class="${m > 360 ? 'ov' : ''}"><span>${DAYN[i]}</span><div class="bar"><i style="width:${Math.min(100, m / 360 * 100)}%"></i></div><span class="mono">${m ? dur(m) : 'free'}</span></div>`).join('')}</div>`; }
+/* the days of one target: what is placed on each, and buttons to put the clicked samples there */
+function daysHTML(t) {
+  const sel = S.tpick && S.tpick.t === t.id && S.tpick.set.size ? S.tpick : null, td = t.week === WK ? (new Date().getDay() + 6) % 7 : -1, un = t.items.reduce((a, i) => a + i.mice.filter(m => dayOf(i, m) < 0 && stOf(i.exp, i.target, m) !== 'done').length, 0);
+  return `<div class="ti"><div class="sm"><b>Day by day</b> <span class="muted">${sel ? `${sel.set.size} clicked: now choose the day.` : 'Click samples above, then the day you will do them. Whatever is not placed is spread over the week for you.'}</span></div>
+   <div class="dgrid">${DAYN.map((n, d) => { const rows = t.items.map(i => { const ms = i.mice.filter(m => dayOf(i, m) === d); return ms.length ? { i, ms } : null; }).filter(Boolean), mins = rows.reduce((a, r) => a + est(r.i.exp, r.ms.length), 0);
+     return d > 4 && !rows.length && !sel ? '' : `<button class="dcol ${d === td ? 'now' : ''} ${mins > 360 ? 'ov' : ''}" data-a="tDay" data-id="${t.id}" data-d="${d}" ${sel ? '' : 'disabled'}><b>${n} ${new Date(t.week + d * DAY).getDate()}</b>${rows.map(r => `<span>${e(iName(r.i))} × ${r.ms.length}</span>`).join('') || '<span class="muted">nothing placed</span>'}${mins ? `<span class="mono">${dur(mins)}</span>` : ''}</button>`; }).join('')}</div>
+   <div class="line sm">${un ? `<span class="muted grow">${un} not placed on a day yet</span>` : '<span class="muted grow">Everything is placed on a day.</span>'}${sel ? `<button class="btn sm" data-a="tDay" data-id="${t.id}" data-d="-1">Take the clicked ones off their day</button>` : ''}</div></div>`;
+}
 const overMsg = 'At least one day needs more than 6 hours at the bench.';
 function tCard(t, act) {
-  const d = tDone(t), n = tN(t), s = tState(t), own = t.user === S.user, canRun = own && t.status === 'agreed' && t.week <= WK, L = own && t.week >= WK && weekLoad(t.user, t.week);
+  const d = tDone(t), n = tN(t), s = tState(t), own = t.user === S.user, canRun = own && t.status === 'agreed' && t.week <= WK, canPick = own && t.status !== 'change' && s !== 'met', L = own && t.week >= WK && weekLoad(t.user, t.week);
   return `<div class="card"><div class="line"><b class="grow">Week of ${wkLabel(t.week)}</b>${flag(...TS[s])}</div>
   <div class="sm muted">${e(users[t.user].name)} · ${e(PR(t.proj)?.name || '')} · ${d} of ${n} done</div>
   <div class="bar"><i style="width:${n ? Math.min(100, d / n * 100) : 0}%"></i></div>
   ${t.items.map((i, k) => {
     const pk = S.tpick && S.tpick.t === t.id && S.tpick.k === k ? S.tpick.set : null;
     return `<div class="ti"><div class="line"><b class="grow sm">${e(iName(i))} · ${i.mice.length} samples</b>${own ? `<span class="sm muted">about ${dur(est(i.exp, i.mice.length))} as one batch</span>` : ''}</div>
-    <div class="mcs">${i.mice.map(m => { const st = stOf(i.exp, i.target, m); return st === 'todo' && canRun ? `<button class="mc ${pk && pk.has(m) ? 'on' : ''}" data-a="tpick" data-id="${t.id}" data-k="${k}" data-m="${e(m)}" aria-pressed="${!!(pk && pk.has(m))}">${e(m)}</button>` : `<span class="mc ${st}">${e(m)}${st === 'done' ? ' ✓' : st === 'run' ? ' ◔' : ''}</span>`; }).join('')}</div>
-    ${pk && pk.size ? `<div class="line"><button class="btn sm pri" data-a="tstart">Start bench session with these ${pk.size}</button><span class="sm muted">about ${dur(est(i.exp, pk.size))}</span></div>` : ''}
+    <div class="mcs">${i.mice.map(m => { const st = stOf(i.exp, i.target, m), dd = dayOf(i, m), tag = dd >= 0 ? ` <span class="dtag">${DAYN[dd]}</span>` : ''; return st === 'todo' && canPick ? `<button class="mc ${pk && pk.has(m) ? 'on' : ''}" data-a="tpick" data-id="${t.id}" data-k="${k}" data-m="${e(m)}" aria-pressed="${!!(pk && pk.has(m))}">${e(m)}${tag}</button>` : `<span class="mc ${st}">${e(m)}${st === 'done' ? ' ✓' : st === 'run' ? ' ◔' : tag}</span>`; }).join('')}</div>
+    ${pk && pk.size && canRun ? `<div class="line"><button class="btn sm pri" data-a="tstart">Start bench session with these ${pk.size}</button><span class="sm muted">about ${dur(est(i.exp, pk.size))}</span></div>` : ''}
     ${(() => { if (!own || s === 'met' || t.status === 'change') return ''; const mates = (PR(t.proj)?.members || []).filter(u => u !== S.user && !sups().includes(u)), todo = i.mice.filter(m => stOf(i.exp, i.target, m) === 'todo'), n = pk && pk.size ? pk.size : todo.length; if (!mates.length || !todo.length) return '';
       return `<div class="line sm"><span class="muted">Hand ${pk && pk.size ? 'the ' + n + ' clicked' : n === 1 ? 'the 1 not started' : 'all ' + n + ' not started'} to</span><select id="ho${t.id}_${k}" aria-label="Teammate to hand over to">${mates.map(u => `<option value="${e(u)}">${e(nameOf(u))}</option>`).join('')}</select><button class="btn sm" data-a="handOver" data-id="${t.id}" data-k="${k}">Hand over</button></div>`; })()}</div>`;
   }).join('')}
   ${canRun && d < n ? '<div class="hint">Click the samples you are doing now, then start the session. The others stay on the plan for another day.</div>' : ''}
+  ${canPick && d < n ? daysHTML(t) : ''}
   ${L ? `<div class="ti"><div class="sm"><b>Does the week fit?</b> <span class="muted">Only you see this. Batches packed into days of 6 hours.</span></div>${loadHTML(L)}${L.over ? `<div class="err">${overMsg}${t.override ? ' You chose to go ahead anyway.' : ''}</div>` : ''}</div>` : ''}
   ${t.note ? `<div class="sm"><b>Prof Kaur:</b> ${e(t.note)}</div>` : ''}
   ${t.excuse ? `<div class="sm"><b>What happened:</b> ${e(t.excuse.what)}<br><b>Why the target was missed:</b> ${e(t.excuse.why)}<br><b>Plan:</b> ${e(t.excuse.plan)}</div>` : ''}${act || ''}</div>`;
@@ -572,6 +587,8 @@ V.today = () => {
     ${fits.length ? fits.map(f => `<div class="fit"><b>${e(f.t)}</b><span class="m">${dur(f.m)}</span><span class="sub">${e(f.sub)}</span></div>`).join('') : '<div class="hint">Nothing outstanding fits in that window.</div>'}</div>`}
    <div class="card"><h2>Backlog</h2>${DB.backlog.map(b => `<label class="line sm"><input type="checkbox" data-c="bl" data-id="${b.id}" ${b.done ? 'checked' : ''}><span class="grow" ${b.done ? 'style="text-decoration:line-through"' : ''}>${e(b.text)}</span><span class="mono">${dur(b.m)}</span><button class="lnk" data-a="blDel" data-id="${b.id}" aria-label="Remove this task">×</button></label>`).join('')}
     <div class="line"><input type="text" id="blText" class="grow" placeholder="Unfinished task, e.g. data analysis" aria-label="Backlog task"><input type="number" id="blMin" value="30" min="5" step="5" style="width:70px" aria-label="Minutes"><button class="btn sm" data-a="addBl">Add</button></div><div class="hint">Only you see your backlog.</div></div>
+   ${(() => { const td = (new Date().getDay() + 6) % 7, rows = []; for (const t of tg) { if (t.user !== S.user || t.status !== 'agreed') continue; t.items.forEach((i, k) => { const ms = i.mice.filter(m => dayOf(i, m) === td && stOf(i.exp, i.target, m) === 'todo'); if (ms.length) rows.push({ t, k, i, ms }); }); }
+     return rows.length ? `<div class="card"><h2>Planned for today</h2>${rows.map(r => `<div class="line sm"><span class="grow"><b>${e(iName(r.i))}</b> × ${r.ms.length} · about ${dur(est(r.i.exp, r.ms.length))}<br><span class="mono muted">${e(r.ms.join(', '))}</span></span><button class="btn sm pri" data-a="tToday" data-id="${r.t.id}" data-k="${r.k}">Tick these</button></div>`).join('')}<div class="hint">Tick these marks them in this week's target below; then press Start bench session there.</div></div>` : ''; })()}
    <div><h3 style="margin:2px 0 8px">This week's target</h3><div class="stack">${tg.length ? tg.map(t => tCard(t)).join('') : '<div class="card hint">No target agreed for this week. Propose one under Targets.</div>'}</div></div>
   </div></div>`;
 };
@@ -630,7 +647,9 @@ function monImport(text, snap) {
 }
 V.monitor = () => {
   if (!proj()) return noProj(); const p = proj(), M = p.mon;
-  if (!M || !M.on) return `<div class="card"><h2>Animal monitoring</h2><div class="hint">For studies with live animals: weights, tumour measurements, treatments and dose sheets for each visit. It is off for this study.</div><div class="line"><button class="btn pri" data-a="monOn">Switch on for ${e(p.name)}</button></div></div>`;
+  if (!M || !M.on) return `<div class="card"><h2>Animal monitoring</h2><div class="hint">For studies with live animals: weights, tumour measurements, treatments and dose sheets for each visit. It is off for this study, and nothing is in it yet.</div>
+    <ol class="sm" style="margin:0;padding-left:20px;display:grid;gap:4px"><li>Switch it on below.</li><li>Under <b>Setup and import</b>, type the drugs and tick which group gets which.</li><li>To bring in what you already recorded, open your sheet's raw data tab in Google Sheets, choose <b>File &gt; Download &gt; Comma-separated values (.csv)</b>, then choose that file under <b>Setup and import</b>. Mouse 7 in the sheet becomes ${e((animals().find(a => parseInt(a.id.replace(/\D/g, ''), 10) === 7) || animals()[0] || { id: 'M07' }).id)} here.</li></ol>
+    <div class="line"><button class="btn pri" data-a="monOn">Switch on for ${e(p.name)}</button></div></div>`;
   const view = S.monView || 'entry', today = dayKey(now()), day = S.monDay || today, A = animals(), alive = a => { const r = anRec(a.id); return !(r && r.end && r.end < day); };
   const nav = `<div class="line"><div class="chips grow">${[['entry', 'Record a visit'], ['weeks', 'Weekly weights'], ['doses', 'Dose sheet'], ['status', 'Status'], ['setup', 'Setup and import']].map(([k, l]) => `<button class="chip ${view === k ? 'view' : ''}" data-a="monView" data-k="${k}">${l}</button>`).join('')}</div>${view === 'entry' || view === 'doses' ? `<button class="btn sm" data-a="monStep" data-n="-1" aria-label="Previous visit day">←</button><label class="fld" for="monDay">Day<input type="date" id="monDay" data-c="monDay" value="${day}" max="${today}"></label><button class="btn sm" data-a="monStep" data-n="1" aria-label="Next visit day" ${day >= today ? 'disabled' : ''}>→</button>` : ''}</div>`;
   let body = '';
@@ -1199,10 +1218,12 @@ const palOf = p => (p && PALS.some(q => q[0] === p.pal) && p.pal) || '';
 let stale = false;
 const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio' && !!a.closest('#app,#modal'); };
 /* a change arriving from Firestore must not wipe a field someone is typing in: redraw once they leave it */
-function softRender() { if (typing() && !gateView()) { stale = true; return; } render(); }
+function softRender() { if (typing() && !gateView()) { stale = true; return; } render(true); }
 function safe(fn, what) { try { return fn(); } catch (err) { console.error(err); return `<div class="card"><b>This ${what} could not be shown.</b><div class="hint">${e(err.message)}</div></div>`; } }
-function render() {
+function render(keepTyped) {
   stale = false; lastSig = sigNow();
+  // when the redraw comes from new data (not from something the person did), text typed but not yet used is carried over
+  const typed = keepTyped ? [...document.querySelectorAll('#app input[id], #app textarea[id]')].filter(el => !['checkbox', 'radio', 'file'].includes(el.type) && el.value !== el.defaultValue).map(el => [el.id, el.value, el.defaultValue]) : [];
   const g = gateView(); welcomeCheck();
   if (g) { $('#app').innerHTML = g; $('#modal').innerHTML = ''; render.mh = ''; return; }
   const vis = visProj();
@@ -1220,7 +1241,7 @@ function render() {
      <div class="sm">What was refused has been put back as it was${S.fail.of > S.fail.bad.length + S.fail.more ? '; the rest was saved' : ''}. If this keeps happening, send a screenshot of this box.</div>
      ${S.fail.bad.map(b => `<div class="sm mono" style="white-space:normal;word-break:break-word">${e(b.op)} ${e(b.path)}${b.fields ? ' [' + e(b.fields) + ']' : ''} → ${e(b.code || 'error')}: ${e(b.msg.slice(0, 220))}</div>`).join('')}${S.fail.more ? `<div class="sm">and ${S.fail.more} more</div>` : ''}</section>` : ''}
    <nav class="nav2" aria-label="Sections">
-    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.filter(t => t[0] !== 'monitor' || (proj() && proj().mon && proj().mon.on)).map(tabBtn).join('')}</div></div>
+    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.map(tabBtn).join('')}</div></div>
     <div class="navg lab ${inStudy ? '' : 'here'}"><div class="navh"><span class="navt">Whole lab</span><span class="sm muted">shared by everyone in ${e(labName)}</span></div><div class="tabs">${LAB_TABS.map(tabBtn).join('')}</div></div>
    </nav>
    ${inStudy ? (proj() ? `<div class="scope study" data-pal="${pal}"><b>${e(proj().name)}</b><span class="grow">You are inside this study. What you add or change on this page belongs to ${e(proj().name)} only.</span>${proj().drive && safeUrl(proj().drive.url) ? `<a class="btn sm" href="${e(proj().drive.url)}" target="_blank" rel="noopener noreferrer">Open the Google Drive folder for ${e(proj().name)}</a>${safeUrl(proj().drive.sheetUrl) ? `<a class="btn sm" href="${e(proj().drive.sheetUrl)}" target="_blank" rel="noopener noreferrer">Data sheet</a>` : ''}` : ''}</div>` : '')
@@ -1230,6 +1251,7 @@ function render() {
      <div class="line"><button class="btn pri" data-a="excuse" data-id="${lock.id}">Send to Prof Kaur and unlock</button><span class="err" id="exErr"></span></div></section>` : ''}
    <div class="view" data-pal="${inStudy ? pal : ''}" ${lock ? 'inert' : ''}>${safe(V[S.tab] || V.today, 'tab')}</div>`;
   document.querySelectorAll('#app .scroll, #app .rows').forEach((el, i) => { if (keep[i]) { el.scrollTop = keep[i][0]; el.scrollLeft = keep[i][1]; } });
+  for (const [id, v, dv] of typed) { const el = document.getElementById(id); if (el && el.defaultValue === dv) el.value = v; }
   const mh = safe(modalHTML, 'window'); if (mh !== render.mh) { $('#modal').innerHTML = mh; render.mh = mh; }   // left alone when unchanged, so an open window does not flicker or lose what is typed
   tick(); saveState();
 }
@@ -1509,6 +1531,12 @@ const A = {
   dAdd: () => { const D = S.draft, [x, t] = D.exp.split('|'); if (!D.pick.size) return false; D.items.push({ exp: x, target: t, mice: [...D.pick] }); D.pick.clear(); D.override = false; },
   dDel: d => { S.draft.items.splice(+d.i, 1); S.draft.override = false; }, dWkSet: d => { S.draft.week = +d.w; S.draft.override = false; },
   tpick: d => { const id = d.id, k = +d.k; if (!S.tpick || S.tpick.t !== id || S.tpick.k !== k) S.tpick = { t: id, k, set: new Set() }; const p = S.tpick.set; p.has(d.m) ? p.delete(d.m) : p.add(d.m); },
+  tDay: d => {
+    const t = DB.targets.find(q => q.id === d.id), sel = S.tpick; if (!t || t.user !== S.user || !sel || sel.t !== t.id || !sel.set.size) { toast('Click the samples first, then the day.'); return false; }
+    const i = t.items[sel.k], day = +d.d; i.d = { ...(i.d || {}) }; for (const m of sel.set) { if (day < 0) delete i.d[m]; else i.d[m] = day; } if (!Object.keys(i.d).length) delete i.d;
+    toast(day < 0 ? `${sel.set.size} taken off their day.` : `${sel.set.size} placed on ${DAYN[day]}.`); S.tpick = null;
+  },
+  tToday: d => { const t = DB.targets.find(q => q.id === d.id), k = +d.k, i = t && t.items[k], td = (new Date().getDay() + 6) % 7; if (!i) return false; S.tpick = { t: t.id, k, set: new Set(i.mice.filter(m => dayOf(i, m) === td && stOf(i.exp, i.target, m) === 'todo')) }; },
   tstart: () => {
     const t = DB.targets.find(q => q.id === S.tpick.t), i = t.items[S.tpick.k], n = leaves(P(X(i.exp).proto))[0];
     if (!cur(n).steps.length) { toast('This protocol has no steps yet. Build them under Protocols first.'); return false; }
@@ -1622,7 +1650,9 @@ document.addEventListener('input', ev => {
   if (S.edit && ev.target.closest('#edRows')) { syncEdit(); $('#prev').innerHTML = prevHTML(S.edit.steps); }
   if (ev.target.dataset.i === 'q') { S.q = ev.target.value; $('#rows').innerHTML = mouseRows(); }
 });
-document.addEventListener('focusout', () => { if (stale) setTimeout(() => { if (stale && !typing()) render(); }, 0); });
+// A redraw that was held back while someone typed waits a moment after they leave the box: leaving it is usually
+// the press on a button, and redrawing before that press lands would throw the press (and the typed text) away.
+document.addEventListener('focusout', () => { if (stale) setTimeout(() => { if (stale && !typing()) render(true); }, 450); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && S.modal) { S.modal = null; render(); } });
 
 /* ---------------- welcome ---------------- */
