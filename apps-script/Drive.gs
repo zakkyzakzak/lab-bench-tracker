@@ -212,6 +212,17 @@ function doPost(e) {
     if (inLab.indexOf(who) < 0) throw new Error('you are not in the lab');
     if (q.action === 'totp') { const t = totpGive_(who); return json_({ ok: true, code: t.code, left: t.left }); }   // Totp.gs; works whether or not Drive is on
     if (!driveOn_()) throw new Error('Google Drive is switched off in the mail sheet');
+    if (q.project === '@lab' && !q.action) {    // a file that belongs to the whole lab rather than one study (a lab duty's instructions)
+      const lname = safeName_(q.name); if (NO_EXT.test(lname)) throw new Error('that kind of file cannot be stored');
+      const lbytes = Utilities.base64Decode(String(q.data || '')); if (!lbytes.length) throw new Error('the file was empty'); if (lbytes.length > MAX_UPLOAD) throw new Error('the file is larger than 32 MB');
+      const it0 = root_().getFoldersByName('Whole lab'), top0 = it0.hasNext() ? it0.next() : root_().createFolder('Whole lab'); let ldir = top0;
+      const me = Session.getEffectiveUser().getEmail().toLowerCase(), have = {};       // everyone in the lab may open what is in here
+      top0.getViewers().concat(top0.getEditors()).forEach(function (u) { have[u.getEmail().toLowerCase()] = true; });
+      inLab.forEach(function (em) { if (em && em !== me && !have[em] && WITS.test(em)) { try { top0.addViewer(em); have[em] = true; } catch (err) {} } });
+      String(q.path || '').split('/').map(safeName_).filter(function (s) { return s && s !== 'Untitled'; }).slice(0, 2).forEach(function (part) { const it = ldir.getFoldersByName(part); ldir = it.hasNext() ? it.next() : ldir.createFolder(part); });
+      const lfile = ldir.createFile(Utilities.newBlob(lbytes, String(q.type || 'application/octet-stream'), lname)); lfile.setDescription('Uploaded from Lab Bench Tracker by ' + who);
+      return json_({ ok: true, url: lfile.getUrl(), id: lfile.getId(), name: lname });
+    }
     const proj = { id: String(q.project || ''), data: obj_((fs_('get', '/projects/' + encodeURIComponent(String(q.project || ''))) || {}).fields) };
     const isSup = (lab.supervisors || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) >= 0;
     if (!isSup && (proj.data.members || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) < 0) throw new Error('you are not in this study');
