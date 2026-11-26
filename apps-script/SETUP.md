@@ -129,6 +129,19 @@ Things to know:
   password needs changing when someone leaves.
 - A person can ask for at most 10 codes in ten minutes.
 
+## 8. Updating the script without pasting (optional)
+`publish.cmd` can send `Code.gs`, `Drive.gs`, `Totp.gs` and `appsscript.json` to the sheet's script
+and move the web app to the new version, keeping its address. One-time set-up:
+
+1. Switch on **Google Apps Script API** at https://script.google.com/home/usersettings
+2. In PowerShell, in the tracker folder, run `.pps-script\connect.cmd`. Sign in as the account
+   that owns the sheet, then paste the **Script ID** (script editor > Project Settings).
+
+After that, every `.\publish.cmd` updates the script when a file in `apps-script/` has changed.
+Two things stay manual: a change that adds a permission still has to be approved by you the next
+time the script runs, and anything typed straight into the script editor is overwritten by the
+next publish, so make changes in this folder.
+
 ## How it works
 - Every minute the script copies notices that have not been emailed into the **Mail queue** sheet
   as `pending`, emails each pending row, and marks it `sent`. The Status column is its memory.

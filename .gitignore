@@ -4,3 +4,8 @@
 # Filled-in protocol sheets hold methods: never commit them
 *.xlsx
 protocol-questions/
+
+# Connection to the lab's Google Sheet script (set up by apps-script/connect.cmd)
+apps-script/.clasp.json
+apps-script/.deployment
+apps-script/.pushed
