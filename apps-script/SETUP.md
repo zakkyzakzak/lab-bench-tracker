@@ -134,7 +134,7 @@ Things to know:
 and move the web app to the new version, keeping its address. One-time set-up:
 
 1. Switch on **Google Apps Script API** at https://script.google.com/home/usersettings
-2. In PowerShell, in the tracker folder, run `.pps-script\connect.cmd`. Sign in as the account
+2. In PowerShell, in the tracker folder, run `.\apps-script\connect.cmd`. Sign in as the account
    that owns the sheet, then paste the **Script ID** (script editor > Project Settings).
 
 After that, every `.\publish.cmd` updates the script when a file in `apps-script/` has changed.

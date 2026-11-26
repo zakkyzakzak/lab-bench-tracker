@@ -1,7 +1,7 @@
 @echo off
 rem One-time: connect this folder to the lab's Google Sheet script, so that publish.cmd can
 rem update the script without anything being pasted by hand.
-rem Run it from PowerShell as:  .pps-script\connect.cmd
+rem Run it from PowerShell as:  .\apps-script\connect.cmd
 setlocal
 cd /d "%~dp0"
 echo.
