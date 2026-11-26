@@ -6,7 +6,7 @@ import { noProj, proj, projExps, stOf } from './runs.js';
 import { expCount, runRow } from './today.js';
 import { dayT, lastOb, tvol, txCount } from './monitoring.js';
 import { gtag, sType } from './plan.js';
-import { addBtn, fileRow, photoSquares, waitLine } from './photos.js';
+import { addBtn, fileRow, photoSquares, sharedHTML, waitLine } from './photos.js';
 
 export function mouseRows() {
   const ms = proj().samples.filter(m => (m.id + ' ' + m.group).toLowerCase().includes(S.q.toLowerCase())), xs = projExps(); const gs = [...new Set(ms.map(m => m.group))];
@@ -39,6 +39,7 @@ function animalView() {
      <div class="body">
       <div class="card"><div class="line"><h2 class="grow">Photos and files</h2>${addBtn()}</div>${waitLine(a.id)}
        ${rec.files.map(fileRow).join('') || '<div class="hint">No photos or files yet. Add photo or file puts it in this animal\'s folder in the study\'s Google Drive and links it here.</div>'}
+       ${sharedHTML(a)}
        <details class="sm"><summary>Or add a link to a file that is already somewhere else</summary><div class="stack" style="padding-top:8px"><div class="rg"><label>Name<input type="text" id="afName" placeholder="e.g. tumour at harvest"></label><label>Link to the file<input type="url" id="afUrl" placeholder="https://drive.google.com/…"></label></div>
        <div class="line"><button class="btn sm" data-a="anFileAdd">Add link</button><span class="err" id="afErr"></span></div></div></details></div>
       <div class="card"><h2>Samples from ${e(a.id)}</h2>${xs.length ? `<div class="scroll"><table class="mx"><thead><tr><th>Sample</th>${xs.map(x => `<th>${e(x.name)}</th>`).join('')}</tr></thead><tbody>${a.samples.map(m => `<tr><td><button class="lnk mono" data-a="goMouse" data-m="${e(m.id)}">${e(sType(m.id) || m.id)}</button></td>${xs.map(x => { const k = expCount(x, m.id); if (!k.n) return '<td class="g" style="text-align:center">–</td>'; return x.targets ? `<td class="${k.d === k.n ? 'done' : k.d || k.r ? 'part' : ''}">${k.d}/${k.n}</td>` : `<td class="${k.d ? 'done' : k.r ? 'run' : ''}">${k.d ? '✓' : k.r ? '◔' : 'to do'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div><div class="hint">Click a sample for its full record. A dash means that experiment is not planned on that sample.</div>` : a.samples.map(m => `<div class="sm mono">${e(m.id)}</div>`).join('')}</div></div>`;

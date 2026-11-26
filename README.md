@@ -34,6 +34,10 @@ its files, for example in Google Drive.
   (Word or Excel), the result files and images (Word, PowerPoint, or the originals in a zip), or
   everything at once. A file that shows several samples, such as a gel, is exported once and lists
   its samples. Files are fetched from Drive one at a time, slowly, and a stopped export can carry on.
+- **Kinds of file on an animal's profile**: adding a file starts by saying what it is. A tumour image can have
+  its background removed; a graph is tagged with groups, stored once in a Graphs folder and shown on every
+  animal in those groups; a gel image is tagged with the samples on it and linked to its experiment for each.
+  Tags can be changed afterwards.
 - **Uploads**: files sent to Google Drive join a waiting list and go up one at a time in the background,
   so you can move straight on to the next animal or sample; a box in the corner shows progress and failures.
 - **Lab duties**: duties dealt out fairly each month by a supervisor or admin, with requests.

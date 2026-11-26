@@ -49,6 +49,7 @@ export function units(sc) {
   for (const f of DB.files) {
     if (f.proj !== sc.p.id || !sc.inR(f.at || 0)) continue;
     const ks = [...new Set((f.keys && f.keys.length ? f.keys : [f.key]).filter(Boolean))].map(k => { const a = String(k).split('|'); return { k, x: a[0], t: a[1] || '', m: a.slice(2).join('|') }; }).filter(q => sc.ids.has(q.x));
+    if (f.kind === 'graph') { const did = f.did || driveId(f.url), u = unit(did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + f.id, f, did); u.graph = f.all ? ['All groups'] : [...new Set((u.graph || []).concat(f.groups || []))]; continue; }   // a graph belongs to groups, not to runs
     if (!ks.length) continue;
     const did = f.did || driveId(f.url), id = did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + f.id, u = unit(id, f, did);
     for (const q of ks) { pairs.add(id + '\n' + q.k); if (u.links.has(q.k)) repeat++; else u.links.set(q.k, q); }
@@ -68,7 +69,7 @@ export function units(sc) {
   return { list, recs, linkN, repeat, merged: recs - list.length, ok, gaps, byKey, samples: new Set(list.flatMap(u => [...u.links.values()].map(q => q.m))).size,
     noLink: list.filter(u => !u.url).length, notDrive: list.filter(u => u.url && !u.did).length };
 }
-const covers = u => { const m = new Map(); for (const q of u.links.values()) { const l = xName(q.x, q.t); (m.get(l) || m.set(l, []).get(l)).push(q.m); } const out = [...m].map(([label, ms]) => ({ label, ms })); if (u.animals.size) out.push({ label: 'Animal profile', ms: [...u.animals] }); return out; };
+const covers = u => { const m = new Map(); for (const q of u.links.values()) { const l = xName(q.x, q.t); (m.get(l) || m.set(l, []).get(l)).push(q.m); } const out = [...m].map(([label, ms]) => ({ label, ms })); if (u.animals.size) out.push({ label: 'Animal profile', ms: [...u.animals] }); if (u.graph) out.push({ label: 'Graph for groups', ms: u.graph }); return out; };
 const coverTxt = u => covers(u).map(c => `${c.label}: ${c.ms.join(', ')}${c.ms.length > 1 ? ' (' + c.ms.length + ')' : ''}`).join('; ');
 const WHY = { link: 'It is a link to somewhere outside the study\'s Drive folder, so the tracker cannot download it. Open it from the link.', nolink: 'Only a name was recorded, with no link.', nodrive: 'Uploads from the tracker are not set up, so files cannot be downloaded (Lab and access, Google Drive).',
   notimg: 'It is not a picture, so it is listed with its link.', noprev: 'The browser cannot show this kind of picture (for example a TIFF) and Drive gave no preview.', failed: 'Drive did not hand it over after several tries.', gone: 'It could not be taken from Drive', none: 'Not reached: the export was stopped before this file.' };
@@ -275,7 +276,7 @@ async function one(job, u, { doc, orig, out, seen }) {
   catch (err) { if (err === STOP) throw err; u.err = err.old ? 'the lab\'s Drive script is an older version that cannot hand files back (SETUP.md, section 7)' : err.message; if (err.perm) u.st = 'gone'; else { u.st = 'failed'; job.fail.push(u); if (job.bad >= PACE.trip) await hold(job); } return null; }
   u.fname = f.name; u.type = f.type; u.size = f.blob.size; job.bytes += u.size;
   const h = await sha(f.blob); if (h && seen.has(h)) { u.st = 'dup'; u.dupOf = seen.get(h); return null; } if (h) seen.set(h, u.no);
-  if (orig) { await out.add(`files/${fileSafe(u.x ? u.x.name : 'Animal profiles')}/${u.no} ${fileSafe(f.name)}`, f.blob); u.saved = true; }
+  if (orig) { await out.add(`files/${fileSafe(u.x ? u.x.name : u.graph ? 'Graphs' : 'Animal profiles')}/${u.no} ${fileSafe(f.name)}`, f.blob); u.saved = true; }
   let im = null; if (doc) { im = await shrink(f.blob); if (!im && /^image\//i.test(f.type)) im = await preview(job, u); if (im && im.ow) { u.ow = u.ow || im.ow; u.oh = u.oh || im.oh; } }
   u.st = im ? 'shown' : orig ? 'saved' : /^image\//i.test(f.type) ? 'noprev' : 'notimg'; return im;
 }

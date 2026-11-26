@@ -2,11 +2,12 @@
 // and the "Associated data" window that gathers everything recorded for one animal.
 
 import * as B from '../backend.js';
-import { $, DB, S, dt, e, flag, nameOf, now, safeUrl, toast } from './core.js';
+import { $, DB, S, dt, e, flag, nameOf, nid, now, safeUrl, toast } from './core.js';
 import { commit } from './sync.js';
 import { render, softRender } from './render.js';
-import { X } from './protocols.js';
-import { fHas, key, proj, projExps, runOf } from './runs.js';
+import { P, X } from './protocols.js';
+import { fHas, key, proj, projExps, runOf, stOf } from './runs.js';
+import { pGroups } from './plan.js';
 import { anMkIn, anRec, animals } from './animals.js';
 import { pickFiles, queueUpload, waitingFor } from './uploads.js';
 import { driveUpload } from './lab.js';
@@ -15,6 +16,18 @@ const LOCAL = new Map();            // Drive file id -> the file itself, for pho
 const PIC = /^image\/(jpeg|png|webp|bmp|gif)$/i;
 export const canUpload = () => !!(DB.lab && DB.lab.uploadUrl && proj());
 
+/* ---------------- kinds of file ---------------- */
+/* What a file is decides where it is stored and what can be done with it:
+     tumour  a photo of this animal, in Animals/<animal>; its background can be removed
+     graph   one file for whole groups, stored once in Graphs and shown on every animal of the groups tagged
+     gel     a gel image, linked to an experiment for every sample that was on it (the same record a bench session's result file makes)
+     other   anything else that belongs to this animal */
+export const FKIND = { tumour: ['Tumour image', 'A photo of this animal\'s tumour. You can remove its background afterwards.'], graph: ['Graph', 'One file for whole groups. It is stored once, in a Graphs folder, and shows on the profile of every animal in the groups you tag.'],
+  gel: ['Gel image', 'An RNA gel, for example. Tag every sample that was on the gel and it is linked to that experiment for each of them.'], other: ['Other file', 'Anything else that belongs to this animal.'] };
+/* photos added before there were kinds are tumour images */
+export const isTumour = f => !!f.img && !f.of && (!f.kind || f.kind === 'tumour');
+const kindTag = f => f.of ? '' : f.kind && f.kind !== 'tumour' ? FKIND[f.kind] ? FKIND[f.kind][0] : '' : f.img ? 'Tumour image' : '';
+
 /* ---------------- what the profile shows ---------------- */
 export const addBtn = () => canUpload()
   ? `<button class="btn sm pri" data-a="phPick">Add photos or files</button>`
@@ -22,12 +35,12 @@ export const addBtn = () => canUpload()
 const tile = (f, label) => `<a class="ph ${f.of ? 'cut' : ''}" href="${e(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer" title="${e(f.name)}: open the full file in Google Drive">${f.th ? `<img src="${e(f.th)}" alt="${e(label)}">` : `<span>${e(label)}</span>`}</a>`;
 /* the two squares in the profile header: the newest photo, and its background-removed version */
 export function photoSquares(rec) {
-  const files = rec.files || [], j = files.map((f, i) => f.img && !f.of ? i : -1).filter(i => i >= 0).pop();
+  const files = rec.files || [], j = files.map((f, i) => isTumour(f) ? i : -1).filter(i => i >= 0).pop();
   if (j == null) return `<div class="phs"><div class="ph none"><span>No photo yet</span></div><div class="ph none"><span>Background removed</span></div></div>`;
   const f = files[j], cut = files.filter(q => q.of && q.of === f.id).pop();
   return `<div class="phs">${tile(f, 'Photo')}${cut ? tile(cut, 'Background removed') : `<button class="ph none" data-a="phCut" data-j="${j}"><span>Remove the background</span></button>`}</div>`;
 }
-export const fileRow = (f, j) => `<div class="line sm">${f.img && f.th ? `<img class="phmini ${f.of ? 'cut' : ''}" src="${e(f.th)}" alt="">` : ''}<span class="grow">${safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`} <span class="muted">· ${dt(f.at)} · ${e(nameOf(f.by))}${f.w ? ` · ${f.w} × ${f.h} px` : ''}${f.of ? ' · background removed' : ''}</span></span>${f.img && !f.of ? `<button class="btn sm" data-a="phCut" data-j="${j}">Remove the background</button>` : ''}<button class="btn sm" data-a="anFileDel" data-j="${j}">Remove</button></div>`;
+export const fileRow = (f, j) => `<div class="line sm">${f.img && f.th ? `<img class="phmini ${f.of ? 'cut' : ''}" src="${e(f.th)}" alt="">` : ''}<span class="grow">${safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`} <span class="muted">· ${dt(f.at)} · ${e(nameOf(f.by))}${f.w ? ` · ${f.w} × ${f.h} px` : ''}${f.of ? ' · background removed' : ''}${kindTag(f) ? ' · ' + kindTag(f) : ''}</span></span>${isTumour(f) ? `<button class="btn sm" data-a="phCut" data-j="${j}">Remove the background</button>` : ''}<button class="btn sm" data-a="anFileDel" data-j="${j}">Remove</button></div>`;
 
 async function thumb(src, type) {
   const k = Math.min(1, 320 / Math.max(src.width, src.height)), c = document.createElement('canvas');
@@ -40,12 +53,12 @@ const roomFor = (rec, th) => (rec.files || []).reduce((n, f) => n + (f.th ? f.th
 
 /* where the uploads for one animal are counted, and the line on its profile while some are still on their way */
 const spot = (pid, an) => pid + '|an|' + an;
-export const waitLine = an => { const n = waitingFor(spot(S.project, an)); return n ? `<div class="todo sm"><span>${n} upload${n === 1 ? ' is' : 's are'} still on ${n === 1 ? 'its' : 'their'} way to Google Drive for ${e(an)}. You can carry on; ${n === 1 ? 'it appears' : 'they appear'} here when done.</span></div>` : ''; };
+export const waitLine = an => { const n = waitingFor(spot(S.project, an)) + waitingFor(S.project + '|shared'); return n ? `<div class="todo sm"><span>${n} upload${n === 1 ? ' is' : 's are'} still on ${n === 1 ? 'its' : 'their'} way to Google Drive for ${e(an)}. You can carry on; ${n === 1 ? 'it appears' : 'they appear'} here when done.</span></div>` : ''; };
 /* a photo or file for an animal joins the waiting list; it is recorded on the animal when its turn has come and it is in Drive */
-function sendToAnimal(pid, an, f) {
+function sendToAnimal(pid, an, f, kind) {
   queueUpload(an + ': ' + f.name, spot(pid, an), async () => {
     let bmp = null; if (PIC.test(f.type)) { try { bmp = await createImageBitmap(f); } catch (_) { bmp = null; } }
-    const j = await driveUpload(f, 'Animals/' + an, pid), item = { name: f.name, url: j.url, id: j.id, at: now(), by: S.user };
+    const j = await driveUpload(f, 'Animals/' + an, pid), item = { name: f.name, url: j.url, id: j.id, at: now(), by: S.user, kind: kind || 'other' };
     let th = ''; if (bmp) { item.img = true; item.w = bmp.width; item.h = bmp.height; th = await thumb(bmp, 'image/jpeg'); LOCAL.set(j.id, f); }
     const rec = anMkIn(pid, an); if (th && roomFor(rec, th)) item.th = th;          // looked up only now: the records may have been refreshed while this waited
     rec.files.push(item); commit(); softRender();
@@ -177,6 +190,7 @@ export function anDataHTML(m) {
   return `<h2>Associated data: ${e(a.id)}</h2><div class="hint">Everything recorded in the tracker for this animal's samples: runs, typed results and result files, including files that cover several samples at once.</div>
     ${shared.length ? `<div class="card"><h3>Files shared with other samples</h3><div class="hint">For example one gel with several lanes. This animal's samples are highlighted.</div>${sharedHTML}</div>` : ''}
     ${blocks.join('') || '<div class="hint">Nothing has been run or attached for this animal\'s samples yet.</div>'}
+    ${(g => g.length ? `<div class="card"><h3>Graphs for ${e(a.group || 'all groups')}</h3>${g.map(f => `<div class="sm">${link(f)} <span class="muted">· ${e(tagTxt(f))} · ${dt(f.at)}</span></div>`).join('')}</div>` : '')(sharedFor(a).filter(f => f.kind === 'graph'))}
     ${rec.files.length ? `<div class="card"><h3>Photos and files of the animal</h3>${rec.files.map(f => `<div class="sm">${link(f)} <span class="muted">· ${dt(f.at)}${f.of ? ' · background removed' : ''}</span></div>`).join('')}</div>` : ''}
     <div class="foot"><button class="btn" data-a="close">Close</button></div>`;
 }
@@ -203,6 +217,49 @@ async function driveTrash(id) {
   if (!j.ok) throw new Error(/empty/.test(j.error || '') ? 'the Drive script is an older version that cannot delete files. Update Drive.gs and deploy a new version (SETUP.md, section 7)' : (j.error || 'Drive refused'));
 }
 
+/* ---------------- graphs and gels: one file shown on many profiles ---------------- */
+const fKeys = f => f.keys && f.keys.length ? f.keys : f.key ? [f.key] : [];
+const sampleOf = k => String(k).split('|').slice(2).join('|');
+const gelSamples = m => X(m.x) ? proj().samples.map(q => q.id).filter(q => stOf(m.x, m.t, q) !== 'na') : [];
+function gelExp(m, xid) { const x = X(xid); if (!x) return; m.x = x.id; m.t = x.targets ? (x.targets.includes(m.t) ? m.t : x.targets[0] || '') : ''; const ok = gelSamples(m); m.ms = m.ms.filter(q => ok.includes(q)); if (!m.ms.length) m.ms = ok.filter(q => q.split(' ')[0] === m.an); }
+/* the graphs tagged with this animal's group, and the gels that one of its samples was on */
+export function sharedFor(a) {
+  const mine = new Set(a.samples.map(q => q.id));
+  return DB.files.filter(f => f.proj === S.project && (f.kind === 'graph' ? f.all || (f.groups || []).includes(a.group || '') : f.kind === 'gel' && fKeys(f).some(k => mine.has(sampleOf(k)))));
+}
+const tagTxt = f => f.kind === 'graph' ? (f.all ? 'all groups' : (f.groups || []).join(', ') || 'no group') : (() => { const ks = fKeys(f), x = X((ks[0] || '').split('|')[0]); return (x ? x.name + ((ks[0] || '').split('|')[1] ? ' ' + ks[0].split('|')[1] : '') + ': ' : '') + ks.length + ' sample' + (ks.length === 1 ? '' : 's'); })();
+export function sharedHTML(a) {
+  const L = sharedFor(a); if (!L.length) return '';
+  return `<div class="ti"><h3>Graphs and gels that include ${e(a.id)}</h3><div class="hint">Each of these is one file, stored once and shown on every profile it is tagged with.</div>${L.map(f => `<div class="line sm">${f.th ? `<img class="phmini" src="${e(f.th)}" alt="">` : ''}<span class="grow">${safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`} <span class="muted">· ${f.kind === 'graph' ? 'Graph' : 'Gel image'} · ${e(tagTxt(f))} · ${dt(f.at)} · ${e(nameOf(f.by))}</span></span><button class="btn sm" data-a="afEdit" data-id="${f.id}">Change tags</button><button class="btn sm" data-a="fileDel" data-id="${f.id}">Remove</button></div>`).join('')}</div>`;
+}
+export function addFileHTML(m) {
+  const a = animals().find(q => q.id === m.an), ed = m.edit ? DB.files.find(f => f.id === m.edit) : null, foot = (go, off) => `<div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button>${go ? `<button class="btn pri" data-a="afGo" ${off ? 'disabled' : ''}>${go}</button>` : ''}</div>`;
+  if ((m.edit && !ed) || (!m.edit && !a)) return '<h2>Add photos or files</h2><div class="hint">That is no longer in this study.</div>' + foot('');
+  let h = ed ? `<h2>Change tags: ${e(ed.name)}</h2>` : `<h2>Add photos or files: <span class="mono">${e(m.an)}</span></h2><div class="hint">First say what it is. That decides where it is stored and what you can do with it afterwards.</div>
+    <div class="kinds">${Object.entries(FKIND).map(([k, v]) => `<button class="kind ${m.kind === k ? 'on' : ''}" data-a="afKind" data-k="${k}" aria-pressed="${m.kind === k}"><b>${v[0]}</b><span>${v[1]}</span></button>`).join('')}</div>`;
+  const nameBox = what => `<label class="fld" style="display:grid;gap:2px">Name for it${ed ? '' : ' (optional; left empty, the file\'s own name is used)'}<input type="text" id="afNm" value="${e(m.nm != null ? m.nm : ed ? ed.name : '')}" placeholder="${what}"></label>`;
+  if (m.kind === 'graph') {
+    const gs = pGroups();
+    h += `<h3>Which groups is this graph about?</h3><div class="mcs"><button class="mc ${m.all ? 'on' : ''}" data-a="afAll" aria-pressed="${!!m.all}">All groups</button>${gs.map(g => `<button class="mc ${!m.all && m.gs.includes(g) ? 'on' : ''}" data-a="afG" data-g="${e(g)}" aria-pressed="${!m.all && m.gs.includes(g)}">${e(g)}</button>`).join('')}</div>
+      <div class="hint">${m.all ? 'It shows on the profile of every animal in this study, including ones added later.' : m.gs.length ? 'It shows on the profile of every animal in ' + e(m.gs.join(', ')) + ', including ones added to ' + (m.gs.length === 1 ? 'that group' : 'those groups') + ' later.' : 'Click the groups, or All groups.'} The file is kept once, in the study\'s Graphs folder.${gs.length ? '' : ' This study has no groups yet, so only All groups can be chosen.'}</div>${nameBox('e.g. Tumour volume over time')}`;
+  }
+  if (m.kind === 'gel') {
+    const xs = projExps(), x = X(m.x), ok = gelSamples(m), an = a || { id: m.an, group: '' };
+    h += !xs.length ? '<div class="todo sm"><span>This study has no experiments yet. Add the experiment under Study plan first, then the gel can be linked to it.</span></div>' : `<h3>Which experiment is the gel from?</h3><div class="mcs">${xs.map(q => `<button class="mc ${q.id === m.x ? 'on' : ''}" data-a="afX" data-x="${q.id}" aria-pressed="${q.id === m.x}">${e(q.name)}</button>`).join('')}</div>
+      ${x && x.targets ? `<div class="mcs">${x.targets.map(t => `<button class="mc ${t === m.t ? 'on' : ''}" data-a="afT" data-t="${e(t)}" aria-pressed="${t === m.t}">${e(t)}</button>`).join('')}</div>` : ''}
+      <h3>Which samples were on the gel? <span class="muted sm">${m.ms.length} ticked</span></h3>
+      <div class="line sm"><button class="btn sm" data-a="afMs" data-k="mine">+ ${e(an.id)}'s samples</button>${an.group ? `<button class="btn sm" data-a="afMs" data-k="group">+ everything in ${e(an.group)}</button>` : ''}<button class="btn sm" data-a="afMs" data-k="all">All</button><button class="btn sm" data-a="afMs" data-k="none">Clear</button></div>
+      <div class="mcs scroll" style="max-height:210px;overflow:auto">${ok.map(q => `<button class="mc ${m.ms.includes(q) ? 'on' : ''}" data-a="afM" data-m="${e(q)}" aria-pressed="${m.ms.includes(q)}">${e(q)}</button>`).join('') || '<span class="hint">No samples are planned on this experiment. Tick them under Study plan first.</span>'}</div>
+      <div class="hint">The gel is linked to ${e(x ? x.name : 'the experiment')} for every sample ticked, exactly as if it had been added as a result file after the bench session. It shows in each sample's record and is exported once.</div>${nameBox('e.g. RNA gel, plate 2')}`;
+  }
+  if (m.kind === 'tumour') h += '<div class="hint">Stored in this animal\'s own folder. Choose one photo or several.</div>';
+  if (m.kind === 'other') h += '<div class="hint">Stored in this animal\'s own folder, with no tags.</div>';
+  return h + foot(ed ? 'Save tags' : m.kind ? 'Choose the file or files' : 'Choose the file or files', !m.kind);
+}
+
+/* what is typed as the name is kept while the groups or samples are being clicked */
+document.addEventListener('input', ev => { if (ev.target.id === 'afNm' && S.modal && S.modal.type === 'addFile') S.modal.nm = ev.target.value; });
+
 export const photoActions = {
   drvDel: () => { const m = S.modal, p = drivePick(m); if (!p) return false; const kids = m.a === 'anFileDel' ? ((anRec(S.selAnimal) || {}).files || []).filter(q => q.of && q.of === p.f.id).length : 0, n = (p.f.keys || []).length;
     S.modal = { type: 'sure', red: true, a: 'drvDelDo', d: { src: m.a, j: m.d.j, id: m.d.id, an: S.selAnimal, fid: p.id, name: p.f.name }, back: m.back || null,
@@ -216,7 +273,37 @@ export const photoActions = {
     return false;
   },
   phCut: d => { openCutter(S.selAnimal, +d.j); return false; },
-  phPick: () => { const pid = S.project, an = S.selAnimal; if (!an || !pid) return false; pickFiles(true, fs => { fs.forEach(f => sendToAnimal(pid, an, f)); softRender(); }); return false; },
+  /* Add photos or files: first say what it is */
+  phPick: () => { const a = animals().find(q => q.id === S.selAnimal); if (!a) return false; S.modal = { type: 'addFile', an: a.id, kind: '', all: false, gs: a.group ? [a.group] : [], x: '', t: '', ms: [] }; },
+  afKind: d => { const m = S.modal; m.kind = d.k; if (d.k === 'gel' && !m.x) { const xs = projExps(), x = xs.find(q => /rna/i.test(q.name + ' ' + ((P(q.proto) || {}).name || ''))) || xs[0]; if (x) gelExp(m, x.id); } },
+  afX: d => { gelExp(S.modal, d.x); }, afT: d => { const m = S.modal; m.t = d.t; m.ms = m.ms.filter(q => stOf(m.x, m.t, q) !== 'na'); },
+  afG: d => { const m = S.modal; m.all = false; m.gs = m.gs.includes(d.g) ? m.gs.filter(g => g !== d.g) : [...m.gs, d.g]; }, afAll: () => { const m = S.modal; m.all = !m.all; },
+  afM: d => { const m = S.modal; m.ms = m.ms.includes(d.m) ? m.ms.filter(q => q !== d.m) : [...m.ms, d.m]; },
+  afMs: d => { const m = S.modal, ok = gelSamples(m), a = animals().find(q => q.id === m.an); m.ms = d.k === 'none' ? [] : d.k === 'all' ? ok : [...new Set(m.ms.concat(ok.filter(q => d.k === 'mine' ? q.split(' ')[0] === m.an : a && (proj().samples.find(z => z.id === q) || {}).group === a.group)))]; },
+  afEdit: d => { const f = DB.files.find(q => q.id === d.id); if (!f) return false; const ks = fKeys(f), k0 = (ks[0] || '').split('|');
+    S.modal = { type: 'addFile', an: S.selAnimal, edit: f.id, kind: f.kind === 'graph' ? 'graph' : 'gel', all: !!f.all, gs: [...(f.groups || [])], x: k0[0] || '', t: k0[1] || '', ms: ks.map(sampleOf) }; },
+  afGo: () => {
+    const m = S.modal, err = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; }, pid = S.project, typed = ($('#afNm') ? $('#afNm').value : '').trim();
+    if (!m || !m.kind) return err('Choose what it is first.');
+    if (m.kind === 'graph' && !m.all && !m.gs.length) return err('Tag at least one group, or all groups.');
+    if (m.kind === 'gel' && (!X(m.x) || !m.ms.length)) return err('Tick at least one sample that was on the gel.');
+    const tags = rec => { if (m.kind === 'graph') { delete rec.groups; delete rec.all; if (m.all) rec.all = true; else rec.groups = [...m.gs]; } else { const ks = m.ms.map(q => key(m.x, m.t, q)); rec.key = ks[0]; if (ks.length > 1) rec.keys = ks; else delete rec.keys; } return rec; };
+    if (m.edit) { const f = DB.files.find(q => q.id === m.edit); if (!f) { S.modal = null; return; } tags(f); if (typed) f.name = typed; S.modal = null; toast('Tags saved for ' + f.name + '.'); return; }
+    const snap = { ...m, gs: [...m.gs], ms: [...m.ms] }, x = X(m.x);
+    pickFiles(true, fs => {
+      for (const file of fs) {
+        if (m.kind === 'tumour' || m.kind === 'other') { sendToAnimal(pid, m.an, file, m.kind); continue; }
+        const name = fs.length === 1 && typed ? typed : file.name;
+        queueUpload((m.kind === 'graph' ? 'Graph: ' : 'Gel: ') + file.name, pid + '|shared', async () => {
+          let th = ''; if (PIC.test(file.type)) { try { th = await thumb(await createImageBitmap(file), 'image/jpeg'); } catch (_) { th = ''; } }
+          const j = await driveUpload(file, m.kind === 'graph' ? 'Graphs' : 'Results/' + ((x && x.name) || 'Experiment'), pid), rec = { id: nid(), proj: pid, kind: m.kind, name, url: j.url, did: j.id, at: now(), by: S.user };
+          Object.assign(m, snap); tags(rec); if (th) rec.th = th; DB.files.push(rec); commit(); softRender();
+        });
+      }
+      if (S.modal === m) S.modal = null; render();
+    });
+    return false;
+  },
   phNoDrive: () => { toast('Uploads need Google Drive switched on for the lab: Lab and access, Google Drive. Until then, paste a link under "Or add a link".'); return false; },
   anData: d => { S.modal = { type: 'anData', an: d.an }; },
 };

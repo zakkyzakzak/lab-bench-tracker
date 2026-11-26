@@ -294,6 +294,9 @@ button.ph{cursor:pointer;color:var(--accent);font-weight:600;font-family:inherit
 #upq{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:950;width:min(340px,calc(100% - 28px));max-height:46vh;overflow:auto;display:grid;gap:6px;background:var(--surface);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;box-shadow:0 8px 24px rgba(8,20,22,.22)} #upq[hidden]{display:none}
 .upq-h{display:flex;gap:8px;align-items:baseline;font-size:13px} .upq-h .sp{flex:1} .upq-cur{display:flex;gap:8px;align-items:center;word-break:break-word}
 .upq-spin{flex:none;width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:upq 0.9s linear infinite} @keyframes upq{to{transform:rotate(360deg)}} @media (prefers-reduced-motion:reduce){.upq-spin{animation:none}}
+.kinds{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.kind{display:grid;gap:3px;align-content:start;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg);cursor:pointer;font-size:13px;line-height:1.35;transition:border-color 150ms ease,background-color 150ms ease,transform 140ms var(--ease-out)} .kind span{color:var(--muted)} .kind:active{transform:scale(.98)}
+.kind.on{border-color:var(--accent);background:var(--accent-soft)} @media (hover:hover) and (pointer:fine){.kind:hover{border-color:var(--accent)}}
 .dcol.past{opacity:.55} .dcol .nw{font-weight:600} .late{color:var(--bad);font-weight:600}
 .dtag{font-family:var(--sans);font-size:10px;font-weight:700;color:var(--accent)} .mc.on .dtag{color:inherit}
 .mx.mon td,.mx.res td{padding:3px 5px} .mx.mon input,.mx.res input{padding:4px 6px} .mx.res input{width:110px}
