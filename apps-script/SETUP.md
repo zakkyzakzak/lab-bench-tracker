@@ -85,6 +85,13 @@ paste the link into the tracker.
 After changing the script later, use **Deploy > Manage deployments > Edit > New version** so the
 address stays the same.
 
+### Photos and the background remover
+**Add photo or file** on an animal's profile uploads into `Animals/<animal>` inside the study's
+folder, creating the folders if they are not there yet. The background remover saves its cut-out
+next to the photo. To cut a photo that was uploaded on an earlier day, the tracker has to ask this
+script for the file, which needs the current `Drive.gs`: paste it in, then **Deploy > Manage
+deployments > Edit > New version > Deploy**.
+
 ### Things to know
 - Members are added to a study's folder as **Editor**, the highest level Drive allows without
   being the owner. Someone whose Wits address has no Google account cannot be added.

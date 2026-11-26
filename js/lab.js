@@ -8,7 +8,7 @@ import { tm } from './runs.js';
 /* ---------------- Google Drive: a folder per study, uploads, hand-over of ownership ---------------- */
 export const BIO_URL = 'https://app.biorender.com/';   // shows the sign-in page to anyone not signed in; BioRender refuses to be shown inside another site, so it opens in its own tab
 export async function driveUpload(file, path) {
-  if (file.size > 20e6) throw new Error('the file is larger than 20 MB');
+  if (file.size > 30e6) throw new Error('the file is larger than 30 MB');
   const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('the file could not be read')); r.readAsDataURL(file); });
   const resp = await fetch(DB.lab.uploadUrl, { method: 'POST', body: JSON.stringify({ token: await B.idToken(), project: S.project, path, name: file.name, type: file.type, data }) });
   const j = await resp.json(); if (!j.ok) throw new Error(j.error || 'the upload was refused'); return j;

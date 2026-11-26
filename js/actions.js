@@ -11,6 +11,7 @@ import { monImport, obChange, obsDays } from './monitoring.js';
 import { dueList, resChange } from './study.js';
 import { anMk, anRec, mouseRows } from './animals.js';
 import { BIO_URL, driveUpload } from './lab.js';
+import { photoActions } from './photos.js';
 import { clean, nextMouse, pGroups, pTypes, planCols, planRows } from './plan.js';
 import { deal, holders, labPeople, mKey, mName } from './duties.js';
 import { render, stale, typing } from './render.js';
@@ -329,6 +330,7 @@ export const A = {
   rmMem: d => { const p = PR(d.p); p.members = p.members.filter(u => u !== d.u); },
 };
 /* Anything that deletes or removes asks first. Each entry gives the question, what is lost, and the button text. */
+Object.assign(A, photoActions);
 export const SURE = {
   blDel: d => ['Remove this task from your backlog?', (DB.backlog.find(b => b.id === d.id) || {}).text || '', 'Remove task'],
   // deleting a whole project asks for its name to be typed instead (see delProj)

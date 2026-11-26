@@ -14,7 +14,7 @@
  */
 const ROOT_NAME = 'Lab Bench Tracker';
 const WEB_KEY = 'AIzaSyAIdI0mTSnB4Y-l-VWGqrrgXrow_fbby9c';   // the tracker's public web key (the same one in config.js), used to check who is uploading
-const MAX_UPLOAD = 25 * 1024 * 1024;
+const MAX_UPLOAD = 32 * 1024 * 1024;
 const NO_EXT = /\.(exe|msi|bat|cmd|com|scr|js|vbs|ps1|jar|sh|html?|svg)$/i;   // never stored: programs and pages
 
 function driveSetup() {
@@ -203,8 +203,15 @@ function doPost(e) {
     const proj = { id: String(q.project || ''), data: obj_((fs_('get', '/projects/' + encodeURIComponent(String(q.project || ''))) || {}).fields) };
     const isSup = (lab.supervisors || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) >= 0;
     if (!isSup && (proj.data.members || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) < 0) throw new Error('you are not in this study');
+    if (q.action === 'fetch') {                 // hand a stored photo back to the tracker (for the background remover); only files inside this study's folder
+      const f = DriveApp.getFileById(String(q.id || '')), top = folder_(proj).folder.getId(); let ok = false, ps = f.getParents(), hop = 0;
+      while (ps.hasNext() && hop++ < 8) { const p = ps.next(); if (p.getId() === top) { ok = true; break; } ps = p.getParents(); }
+      if (!ok) throw new Error('that file is not in this study\'s folder');
+      const b = f.getBlob(), by = b.getBytes(); if (by.length > MAX_UPLOAD) throw new Error('the file is larger than 32 MB');
+      return json_({ ok: true, name: f.getName(), type: b.getContentType(), data: Utilities.base64Encode(by) });
+    }
     const name = safeName_(q.name); if (NO_EXT.test(name)) throw new Error('that kind of file cannot be stored');
-    const bytes = Utilities.base64Decode(String(q.data || '')); if (!bytes.length) throw new Error('the file was empty'); if (bytes.length > MAX_UPLOAD) throw new Error('the file is larger than 25 MB');
+    const bytes = Utilities.base64Decode(String(q.data || '')); if (!bytes.length) throw new Error('the file was empty'); if (bytes.length > MAX_UPLOAD) throw new Error('the file is larger than 32 MB');
     let dir = folder_(proj).folder;
     String(q.path || '').split('/').map(safeName_).filter(function (s) { return s && s !== 'Untitled'; }).slice(0, 3).forEach(function (part) {
       const it = dir.getFoldersByName(part); dir = it.hasNext() ? it.next() : dir.createFolder(part);
