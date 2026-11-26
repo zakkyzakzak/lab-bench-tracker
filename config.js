@@ -11,4 +11,6 @@ export const firebaseConfig = {
 };
 
 // The one account allowed to do the one-time lab setup (becomes lab admin).
+// The address NFC tags and place links point to.
+export const SITE = 'https://lab-bench-tracker.web.app/';
 export const LAB_OWNER = '2304452@students.wits.ac.za';

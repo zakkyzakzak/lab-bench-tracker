@@ -1,2 +1,6 @@
 .firebase/
 .claude/
+
+# Filled-in protocol sheets hold methods: never commit them
+*.xlsx
+protocol-questions/

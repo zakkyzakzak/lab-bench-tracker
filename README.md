@@ -24,6 +24,9 @@ its files, for example in Google Drive.
   check boxes and deviations noted per sample or per batch.
 - **Overview / Samples**: every sample against every experiment, and the full record of each run.
 - **Reagents**: stock counted down from finished steps, with a low-stock warning.
+- **Lab map**: each room as a 3D scan (a GLB file from a phone's LiDAR scanning app), the places inside it
+  (fridges, shelves, drawers) marked on the scan, the items kept in each place, photos, and a record of when
+  each place was last checked. Every place has a link (`#p=<place>`) to write to an NFC tag stuck at that spot.
 - **Targets**: weekly targets by exact sample, agreed by the supervisor, with a time estimate that
   learns from finished sessions. A missed week must be explained before carrying on.
 - **Lab duties**: duties dealt out fairly each month by a supervisor or admin, with requests.
@@ -36,11 +39,14 @@ The app starts empty: there is no example data.
 ## Who can see what
 - Supervisors read and write every project. Members only the projects that list them.
   Admins manage lab membership but do not see other people's projects.
-- Protocols, reagents, duties and requests are shared by everyone in the lab.
+- Protocols, reagents, the lab map, duties and requests are shared by everyone in the lab.
 - Each person's backlog is private to them. Notices go only to the person they are for.
 
 ## Files
-- `index.html`, `styles.css`, `app.js`: the app (no build step).
+- `index.html`, `styles.css`, `app.js`: the page, its styles and the start-up code (no build step).
+- `js/`: the app itself, one file per area (`core`, `sync`, `protocols`, `reagents`, `targets`, `monitoring`,
+  `study`, `animals`, `plan`, `duties`, `lab`, `modal`, `render`, `actions`, `welcome`, and for the lab map
+  `places`, `map`, `scan`, `blobs`). Each file starts with a line saying what it holds.
 - `backend.js`: the only file that talks to Firebase (SDK loaded from gstatic).
 - `config.js`: Firebase web settings (public identifiers, not secrets).
 - `firestore.rules`: who can read and write what.
@@ -56,7 +62,8 @@ The app starts empty: there is no example data.
 - `projects/{id}`: name, description, members, samples, experiment order. Under it: `exps`,
   `asg` (which sample gets which experiment), `sessions`, `targets`, `files` (result links).
 - Lab-wide: `protocols`, `reagents`, `duties`, `rota` (one per month), `dutyLog`, `dutyRequests`,
-  `notices`, `progress` (a per-project summary the whole lab can read), `visits` (admin-only), `presence` (who has the site open, shown as circles at the top).
+  `places` and `items` (the lab map), `blobs/{id}/parts/{n}` (room scans and photos, stored in pieces of
+  under 1 MB), `notices`, `progress` (a per-project summary the whole lab can read), `visits` (admin-only), `presence` (who has the site open, shown as circles at the top).
 
 ## Hosting and deploy
 - Main site: Firebase Hosting, https://lab-bench-tracker.web.app

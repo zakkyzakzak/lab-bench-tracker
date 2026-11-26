@@ -32,6 +32,9 @@ function onOpen() {
     .addSeparator()
     .addItem('Switch on Google Drive', 'driveSetup')
     .addItem('Switch off Google Drive', 'driveOff')
+    .addSeparator()
+    .addItem('Set the BioRender code secret', 'totpSet')
+    .addItem('Test the code generator', 'totpTest')
     .addToUi();
 }
 

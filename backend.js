@@ -5,7 +5,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebas
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, isSignInWithEmailLink, signInWithEmailLink }
   from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot,
-  query, where, writeBatch, deleteField, serverTimestamp, terminate, clearIndexedDbPersistence }
+  query, where, writeBatch, deleteField, serverTimestamp, terminate, clearIndexedDbPersistence, setDoc, getDoc, getDocFromCache, Bytes }
   from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './config.js';
 
@@ -53,6 +53,16 @@ export const watchDoc = (path, cb, err) => onSnapshot(doc(db, path), s => cb(s.e
 export const watchCol = (path, filter, cb, err) => onSnapshot(
   filter ? query(collection(db, path), where(filter[0], filter[1], filter[2])) : collection(db, path),
   s => cb(new Map(s.docs.map(d => [d.id, d.data()]))), err);
+
+// A piece of a stored file (a room scan or a photo) kept as raw bytes in one document, which may hold just under 1 MB.
+export const putBytes = (path, u8) => setDoc(doc(db, path), { d: Bytes.fromUint8Array(u8) });
+// Pieces never change once written, so the copy this browser already has is used when there is one.
+export async function getBytes(path) {
+  const r = doc(db, path); let s = null;
+  try { s = await getDocFromCache(r); } catch (_) {}
+  if (!s || !s.exists()) s = await getDoc(r);
+  return s.exists() ? s.data().d.toUint8Array() : null;
+}
 
 // ops: [{op: 'set' | 'merge' | 'update' | 'delete', path, data}], applied together.
 export async function commit(ops) {

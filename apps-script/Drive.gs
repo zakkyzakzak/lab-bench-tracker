@@ -195,10 +195,11 @@ function whoIs_(token) {
 function doGet() { return json_({ ok: true, service: 'Lab Bench Tracker uploads' }); }
 function doPost(e) {
   try {
-    if (!driveOn_()) throw new Error('Google Drive is switched off in the mail sheet');
     const q = JSON.parse(e.postData.contents), who = whoIs_(q.token), lab = lab_();
     const inLab = (lab.members || []).concat(lab.admins || [], lab.supervisors || []).map(function (x) { return String(x).toLowerCase(); });
     if (inLab.indexOf(who) < 0) throw new Error('you are not in the lab');
+    if (q.action === 'totp') { const t = totpGive_(who); return json_({ ok: true, code: t.code, left: t.left }); }   // Totp.gs; works whether or not Drive is on
+    if (!driveOn_()) throw new Error('Google Drive is switched off in the mail sheet');
     const proj = { id: String(q.project || ''), data: obj_((fs_('get', '/projects/' + encodeURIComponent(String(q.project || ''))) || {}).fields) };
     const isSup = (lab.supervisors || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) >= 0;
     if (!isSup && (proj.data.members || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) < 0) throw new Error('you are not in this study');

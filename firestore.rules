@@ -83,6 +83,23 @@ service cloud.firestore {
       allow read, create, update: if isMember();
       allow delete: if isSup() || isAdmin();
     }
+    // The lab map: places (rooms, fridges, shelves, drawers) and the items logged in them.
+    match /places/{id} {
+      allow read, write: if isMember();
+    }
+    match /items/{id} {
+      allow read, write: if isMember();
+    }
+    // Room scans and photos for the lab map. A file is stored as numbered pieces of under 1 MB each;
+    // the document above the pieces says who added it.
+    match /blobs/{id} {
+      allow read: if isMember();
+      allow create: if isMember() && request.resource.data.by == email();
+      allow delete: if isSup() || isAdmin() || (isMember() && resource.data.by == email());
+      match /parts/{n} {
+        allow read, create, delete: if isMember();
+      }
+    }
     // Duties are added and dealt out by supervisors and admins. A member may only mark a
     // once-off duty as done.
     match /duties/{id} {

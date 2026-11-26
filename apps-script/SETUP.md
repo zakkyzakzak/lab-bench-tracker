@@ -93,6 +93,35 @@ address stays the same.
   folder and its files. Google only allows that inside one organisation, so it may be refused for
   an address in a different Wits domain; the reason is shown in the tracker.
 
+## 8. BioRender login (codes for the lab's shared account)
+This part is optional. It lets lab members get the 6-digit two-step code for the lab's BioRender
+account from the tracker, so nobody has to pass a phone around. It needs the web app from
+section 7 (**Uploads from inside the tracker**) to be deployed and its address saved in the tracker;
+Google Drive itself does not have to be switched on.
+
+1. In the script editor, add a third file: click **+** next to Files, choose **Script**, name it
+   `Totp`, and paste in the whole of [Totp.gs](Totp.gs). Replace `Code.gs` and `Drive.gs` with the
+   new versions and save.
+2. Reload the sheet and choose **Lab mail > Test the code generator**. It must say it is working.
+3. Choose **Lab mail > Set the BioRender code secret** and paste the secret key. This is the text
+   key BioRender shows next to the QR code when two-step sign-in is set up ("can't scan?"). If
+   nobody kept it, switch two-step sign-in off and on again in BioRender to get a new one, and add
+   it to an authenticator app at the same time as a spare.
+4. The sheet shows the code for that moment. Check that it matches the authenticator app.
+5. Publish the change: **Deploy > Manage deployments > Edit > New version**.
+
+In the tracker, **BioRender login** (next to **Whole lab**) opens BioRender's sign-in page in a new
+tab and offers the code. The password is not stored anywhere in the tracker or the script: give it
+to people yourself.
+
+Things to know:
+- Every code handed out is written to the **Sign-in codes** sheet with the time and the person.
+- The secret lives in the script's properties. Anyone who can edit this script or sheet can read
+  it, so keep the sheet private to the lab admin.
+- Removing someone from the lab stops their codes at once. They never saw the secret, so only the
+  password needs changing when someone leaves.
+- A person can ask for at most 10 codes in ten minutes.
+
 ## How it works
 - Every minute the script copies notices that have not been emailed into the **Mail queue** sheet
   as `pending`, emails each pending row, and marks it `sent`. The Status column is its memory.

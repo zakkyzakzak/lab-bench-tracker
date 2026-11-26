@@ -283,3 +283,22 @@ a.lnk{font-weight:600}
 
 @media (prefers-reduced-motion:reduce){.btn,.tab,.chip,button.mc,.sw,.dlg,#toast{transition:opacity 150ms ease,color 150ms ease,border-color 150ms ease,background-color 150ms ease} .btn:active:not(:disabled),.tab:active,.chip:active,button.mc:active,.wk:active,.sw:active{transform:none} @starting-style{.dlg{transform:none}}}
 @media print{.nav2,.scope{display:none}}
+
+/* lab map: the 3D scan of a room, the dots that mark places on it, and photo thumbnails */
+.scanHost{position:relative;height:min(56vh,520px);min-height:260px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--sunk)}
+.scan3d{position:absolute;inset:0}
+.scan3d canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.scan3d.picking canvas{cursor:crosshair}
+.pins{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.pin{position:absolute;left:0;top:0;margin:-17px 0 0 -17px;padding:10px;border:0;background:none;pointer-events:auto;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--fg)}
+.pin[hidden]{display:none}
+.scan3d.picking .pin{pointer-events:none;opacity:.55}
+.pin i{flex:none;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5);background:#7b8a8d}
+.pin.ok i{background:#1b7743} .pin.stale i{background:#c98a14}
+.pin span{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:0 5px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pin.on{z-index:1} .pin.on i{box-shadow:0 0 0 3px var(--accent)} .pin.on span{border-color:var(--accent)}
+.scanNote{position:absolute;left:8px;right:8px;bottom:8px;width:fit-content;max-width:calc(100% - 16px);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:4px 8px;font-size:13px}
+.scanNote:empty{display:none}
+.thumbs{display:flex;flex-wrap:wrap;gap:10px}
+.thumb{display:grid;gap:2px;justify-items:start}
+.thumb img{display:block;width:104px;height:104px;object-fit:cover;border:1px solid var(--line);border-radius:4px;background:var(--sunk)}
