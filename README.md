@@ -27,8 +27,15 @@ its files, for example in Google Drive.
 - **Lab map**: each room as a 3D scan (a GLB file from a phone's LiDAR scanning app), the places inside it
   (fridges, shelves, drawers) marked on the scan, the items kept in each place, photos, and a record of when
   each place was last checked. Every place has a link (`#p=<place>`) to write to an NFC tag stuck at that spot.
-- **Targets**: weekly targets by exact sample, agreed by the supervisor, with a time estimate that
-  learns from finished sessions. A missed week must be explained before carrying on.
+- **Targets**: planned day by day over the next two weeks, by exact sample; each week is sent to the
+  supervisor as its own target and tracked against its days, with a time estimate that learns from
+  finished sessions. A missed week must be explained before carrying on.
+- **Export**: the study's record as files, in place of a paper lab book: the methods as performed
+  (Word or Excel), the result files and images (Word, PowerPoint, or the originals in a zip), or
+  everything at once. A file that shows several samples, such as a gel, is exported once and lists
+  its samples. Files are fetched from Drive one at a time, slowly, and a stopped export can carry on.
+- **Uploads**: files sent to Google Drive join a waiting list and go up one at a time in the background,
+  so you can move straight on to the next animal or sample; a box in the corner shows progress and failures.
 - **Lab duties**: duties dealt out fairly each month by a supervisor or admin, with requests.
 
 - **Inbox and email**: every notice shows in the person's Inbox and, once the mail sheet is set
@@ -45,7 +52,7 @@ The app starts empty: there is no example data.
 ## Files
 - `index.html`, `styles.css`, `app.js`: the page, its styles and the start-up code (no build step).
 - `js/`: the app itself, one file per area (`core`, `sync`, `protocols`, `reagents`, `targets`, `monitoring`,
-  `study`, `animals`, `plan`, `duties`, `lab`, `modal`, `render`, `actions`, `welcome`, and for the lab map
+  `study`, `animals`, `photos`, `uploads`, `plan`, `duties`, `export`, `office`, `lab`, `modal`, `render`, `actions`, `welcome`, and for the lab map
   `places`, `map`, `scan`, `blobs`). Each file starts with a line saying what it holds.
 - `backend.js`: the only file that talks to Firebase (SDK loaded from gstatic).
 - `config.js`: Firebase web settings (public identifiers, not secrets).

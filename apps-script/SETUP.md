@@ -92,6 +92,29 @@ next to the photo. To cut a photo that was uploaded on an earlier day, the track
 script for the file, which needs the current `Drive.gs`: paste it in, then **Deploy > Manage
 deployments > Edit > New version > Deploy**.
 
+### Exports
+The **Export** tab of a study fetches its result files back from Drive through this script, one at
+a time, to put them in a Word document, a PowerPoint or a zip. That works with the script as it
+is. With the current `Drive.gs` it also:
+- checks every file first (still in the study's folder, what kind it is, how big), so a document
+  export only fetches the pictures and skips spreadsheets, PDFs and run files;
+- gets Drive's own preview of pictures a browser cannot show, such as TIFF scans.
+
+To get those, paste in the current `Drive.gs`, then **Deploy > Manage deployments > Edit > New
+version > Deploy**. Nothing has to change in the tracker.
+
+Things to know about exports:
+- Only files inside the study's own Drive folder can be fetched: files uploaded from the tracker,
+  or put in that folder by hand. A link to anything else is listed in the export with its link.
+- Files over 32 MB are listed with their link rather than fetched.
+- Google limits how much a script may do in a day and how many requests it takes at once. The
+  tracker fetches one file at a time with a pause in between, slows down when Drive is slow, and
+  stops and asks after several refusals in a row. A study with over a thousand images can take an
+  hour or more and may need to be carried on the next day; **Carry on from there** on the Export
+  tab picks up after the last piece that was saved.
+- Every fetch runs as the Google account that owns this script, so it counts against that
+  account's daily allowance, together with the email notices and the data sheets.
+
 ### Things to know
 - Members are added to a study's folder as **Editor**, the highest level Drive allows without
   being the owner. Someone whose Wits address has no Google account cannot be added.

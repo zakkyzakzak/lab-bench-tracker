@@ -22,7 +22,8 @@ export const errMsg = err => (err && err.code === 'permission-denied') ? 'Not al
 /* ---------------- state ---------------- */
 export const DB = { lab: null, projects: [], exps: [], sessions: [], files: [], targets: [], asg: new Set(), protocols: [], gone: [], progress: [], obs: [], animals: [], reagents: [], duties: [], rota: {}, dutyLog: [], requests: [], notices: [], backlog: [], places: [], items: [] };
 export const S = { fb: null, user: '', ready: false, labErr: null, people: new Map(), tab: 'today', project: null, selMouse: null, mx: null, selExp: undefined, selTarget: '', picked: new Set(), selProto: null, selNode: null, viewRev: null, edit: null, openSession: null, freeMin: null, q: '', modal: null, variant: null, tpick: null, draft: null, planX: '', dOff: 0, addT: new Set(), addG: '', smOpen: false };
-export const newDraft = () => ({ week: WK + 7 * DAY, items: [], pick: new Set(), exp: '', override: false }); S.draft = newDraft();
+/* the plan being put together under Targets: two weeks from `week`; each item is { week, exp, target, mice, d: { sample: day 0-6 } } */
+export const newDraft = () => ({ week: WK, items: [], pick: new Set(), exp: '', override: false }); S.draft = newDraft();
 /* An NFC tag (or any link) that ends in #p=<place> opens the lab map at that place. It is remembered through
    sign-in, including a sign-in link that opens in a new tab, and followed once the lab's records have loaded. */
 const GO = 'lbt-go';

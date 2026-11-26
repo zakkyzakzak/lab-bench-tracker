@@ -6,7 +6,7 @@ import { noProj, proj, projExps, stOf } from './runs.js';
 import { expCount, runRow } from './today.js';
 import { dayT, lastOb, tvol, txCount } from './monitoring.js';
 import { gtag, sType } from './plan.js';
-import { addBtn, fileRow, photoSquares } from './photos.js';
+import { addBtn, fileRow, photoSquares, waitLine } from './photos.js';
 
 export function mouseRows() {
   const ms = proj().samples.filter(m => (m.id + ' ' + m.group).toLowerCase().includes(S.q.toLowerCase())), xs = projExps(); const gs = [...new Set(ms.map(m => m.group))];
@@ -19,10 +19,12 @@ const anId = sid => String(sid).split(' ')[0];
 export function animals() { const m = new Map(); for (const s of proj().samples) { const a = anId(s.id); if (!m.has(a)) m.set(a, { id: a, group: s.group, samples: [] }); m.get(a).samples.push(s); } return [...m.values()]; }
 export const anRec = a => DB.animals.find(q => q.proj === S.project && q.id === a);
 export const anMk = a => { let r = anRec(a); if (!r) DB.animals.push(r = { id: a, proj: S.project, files: [] }); return r; };
+/* the same, for a named study: an upload that finishes later must land in the study it was started in */
+export const anMkIn = (pid, a) => { let r = DB.animals.find(q => q.proj === pid && q.id === a); if (!r) DB.animals.push(r = { id: a, proj: pid, files: [] }); r.files = r.files || []; return r; };
 const byAnimal = () => !S.mAll && animals().length < proj().samples.length;
 const mToggle = () => animals().length < proj().samples.length ? `<div class="chips"><button class="chip ${byAnimal() ? 'view' : ''}" data-a="mBy" data-k="">By animal or donor</button><button class="chip ${byAnimal() ? '' : 'view'}" data-a="mBy" data-k="1">Every sample</button></div>` : '';
 /* shown wherever a file can be attached: uploads go to the study's Google Drive folder once that is switched on */
-export const upBtn = id => DB.lab && DB.lab.uploadUrl && proj() ? `<label class="btn sm" style="cursor:pointer">Upload a file<input type="file" id="${id}" hidden></label>` : '';
+export const upBtn = id => DB.lab && DB.lab.uploadUrl && proj() ? `<button class="btn sm" data-a="upPick" data-k="${id}">Upload a file</button>` : '';
 function animalView() {
   const xs = projExps(), L = animals().filter(a => (a.id + ' ' + a.group).toLowerCase().includes((S.q || '').toLowerCase())), a = animals().find(q => q.id === S.selAnimal);
   const cnt = an => { let d = 0, n = 0, r = 0; an.samples.forEach(m => xs.forEach(x => { const c = expCount(x, m.id); d += c.d; n += c.n; r += c.r; })); return { d, n, r }; };
@@ -35,7 +37,7 @@ function animalView() {
       ${mon ? `<div class="who">${lw ? 'Last weight ' + lw.o.w + ' g on ' + dty(dayT(lw.day)) : 'No weight recorded'}${lv ? ' · last tumour volume ' + Math.round(tvol(lv.o)) + ' mm³ on ' + dty(dayT(lv.day)) : ''} · ${txCount(a.id)} of ${proj().mon.tx || 0} treatments · <button class="lnk" data-a="tab" data-k="monitor">Open Monitoring</button></div>` : ''}
       <div class="line"><button class="btn sm" data-a="anData" data-an="${e(a.id)}">Associated data</button></div></div>${photoSquares(rec)}</div></div>
      <div class="body">
-      <div class="card"><div class="line"><h2 class="grow">Photos and files</h2>${addBtn()}</div>
+      <div class="card"><div class="line"><h2 class="grow">Photos and files</h2>${addBtn()}</div>${waitLine(a.id)}
        ${rec.files.map(fileRow).join('') || '<div class="hint">No photos or files yet. Add photo or file puts it in this animal\'s folder in the study\'s Google Drive and links it here.</div>'}
        <details class="sm"><summary>Or add a link to a file that is already somewhere else</summary><div class="stack" style="padding-top:8px"><div class="rg"><label>Name<input type="text" id="afName" placeholder="e.g. tumour at harvest"></label><label>Link to the file<input type="url" id="afUrl" placeholder="https://drive.google.com/…"></label></div>
        <div class="line"><button class="btn sm" data-a="anFileAdd">Add link</button><span class="err" id="afErr"></span></div></div></details></div>

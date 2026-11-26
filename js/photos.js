@@ -4,10 +4,11 @@
 import * as B from '../backend.js';
 import { $, DB, S, dt, e, flag, nameOf, now, safeUrl, toast } from './core.js';
 import { commit } from './sync.js';
-import { render } from './render.js';
+import { render, softRender } from './render.js';
 import { X } from './protocols.js';
 import { fHas, key, proj, projExps, runOf } from './runs.js';
-import { anMk, anRec, animals } from './animals.js';
+import { anMkIn, anRec, animals } from './animals.js';
+import { pickFiles, queueUpload, waitingFor } from './uploads.js';
 import { driveUpload } from './lab.js';
 
 const LOCAL = new Map();            // Drive file id -> the file itself, for photos opened or uploaded in this visit
@@ -16,7 +17,7 @@ export const canUpload = () => !!(DB.lab && DB.lab.uploadUrl && proj());
 
 /* ---------------- what the profile shows ---------------- */
 export const addBtn = () => canUpload()
-  ? `<label class="btn sm pri" style="cursor:pointer">Add photo or file<input type="file" id="phUp" hidden></label>`
+  ? `<button class="btn sm pri" data-a="phPick">Add photos or files</button>`
   : `<button class="btn sm" data-a="phNoDrive">Add photo or file</button>`;
 const tile = (f, label) => `<a class="ph ${f.of ? 'cut' : ''}" href="${e(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer" title="${e(f.name)}: open the full file in Google Drive">${f.th ? `<img src="${e(f.th)}" alt="${e(label)}">` : `<span>${e(label)}</span>`}</a>`;
 /* the two squares in the profile header: the newest photo, and its background-removed version */
@@ -37,17 +38,19 @@ async function thumb(src, type) {
 /* thumbnails are kept with the animal's record so everyone sees them at once; stop adding them before the record gets too big */
 const roomFor = (rec, th) => (rec.files || []).reduce((n, f) => n + (f.th ? f.th.length : 0), 0) + th.length < 600000;
 
-document.addEventListener('change', ev => {
-  const el = ev.target; if (el.id !== 'phUp') return;
-  const f = el.files && el.files[0], an = S.selAnimal; if (!f || !an) return;
-  toast('Uploading ' + f.name + ' to Google Drive…');
-  (async () => {
-    const pic = PIC.test(f.type); let bmp = null; if (pic) { try { bmp = await createImageBitmap(f); } catch (_) { bmp = null; } }
-    const j = await driveUpload(f, 'Animals/' + an), rec = anMk(an), item = { name: f.name, url: j.url, id: j.id, at: now(), by: S.user };
-    if (bmp) { item.img = true; item.w = bmp.width; item.h = bmp.height; const th = await thumb(bmp, 'image/jpeg'); if (roomFor(rec, th)) item.th = th; LOCAL.set(j.id, f); }
-    rec.files.push(item); commit(); render(); toast(f.name + ' is in the Drive folder for ' + an + '.');
-  })().catch(err => toast('The upload did not work: ' + (err.message || 'no answer from Drive') + '.'));
-});
+/* where the uploads for one animal are counted, and the line on its profile while some are still on their way */
+const spot = (pid, an) => pid + '|an|' + an;
+export const waitLine = an => { const n = waitingFor(spot(S.project, an)); return n ? `<div class="todo sm"><span>${n} upload${n === 1 ? ' is' : 's are'} still on ${n === 1 ? 'its' : 'their'} way to Google Drive for ${e(an)}. You can carry on; ${n === 1 ? 'it appears' : 'they appear'} here when done.</span></div>` : ''; };
+/* a photo or file for an animal joins the waiting list; it is recorded on the animal when its turn has come and it is in Drive */
+function sendToAnimal(pid, an, f) {
+  queueUpload(an + ': ' + f.name, spot(pid, an), async () => {
+    let bmp = null; if (PIC.test(f.type)) { try { bmp = await createImageBitmap(f); } catch (_) { bmp = null; } }
+    const j = await driveUpload(f, 'Animals/' + an, pid), item = { name: f.name, url: j.url, id: j.id, at: now(), by: S.user };
+    let th = ''; if (bmp) { item.img = true; item.w = bmp.width; item.h = bmp.height; th = await thumb(bmp, 'image/jpeg'); LOCAL.set(j.id, f); }
+    const rec = anMkIn(pid, an); if (th && roomFor(rec, th)) item.th = th;          // looked up only now: the records may have been refreshed while this waited
+    rec.files.push(item); commit(); softRender();
+  });
+}
 
 /* ---------------- print size: carried from the photo into the cut-out ---------------- */
 /* pixels per metre recorded in a JPEG or PNG, or null when the file does not say */
@@ -119,7 +122,7 @@ async function openCutter(an, j) {
     if (pts.length) { path(); if (closed) ctx.closePath(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
       if (!closed) { const p = pts[0]; ctx.beginPath(); ctx.arc(p[0] * s, p[1] * s, 6, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.stroke(); } }
     box.querySelector('#cutZoom').textContent = Math.round(s * 100) + '%'; box.querySelector('[data-k=save]').disabled = !closed || busy;
-    hint(busy ? 'Saving at full size and uploading…' : closed ? 'The darkened part will be removed. Save the cut-out, or Start again to redraw.' : pts.length ? 'Keep clicking around the object, or hold the mouse down and trace it. Click the white dot (or double-click) to close the shape.' : 'Click around what you want to keep, or hold the mouse down and trace it. Zoom in with + for a tighter edge.');
+    hint(busy ? 'Making the cut-out at full size…' : closed ? 'The darkened part will be removed. Save the cut-out, or Start again to redraw.' : pts.length ? 'Keep clicking around the object, or hold the mouse down and trace it. Click the white dot (or double-click) to close the shape.' : 'Click around what you want to keep, or hold the mouse down and trace it. Zoom in with + for a tighter edge.');
   }
   const at = ev => { const r = cv.getBoundingClientRect(), s = scale(); return [Math.max(0, Math.min(W, (ev.clientX - r.left) / s)), Math.max(0, Math.min(H, (ev.clientY - r.top) / s))]; };
   const near = (a, b, px) => Math.hypot(a[0] - b[0], a[1] - b[1]) * scale() < px;
@@ -132,7 +135,7 @@ async function openCutter(an, j) {
     const k = ev.target.dataset && ev.target.dataset.k; if (!k || busy) return;
     if (k === 'in') zoom = Math.min(8, zoom * 1.5); if (k === 'out') zoom = Math.max(1, zoom / 1.5);
     if (k === 'undo') { if (closed) closed = false; else pts.pop(); } if (k === 'clear') { pts = []; closed = false; }
-    if (k === 'save' && closed) { busy = true; draw(); save().then(close, err => { busy = false; draw(); hint('It could not be saved: ' + (err.message || 'unknown reason') + '.'); }); return; }
+    if (k === 'save' && closed) { busy = true; draw(); save().then(close, err => { busy = false; draw(); hint('The cut-out could not be made: ' + (err.message || 'unknown reason') + '.'); }); return; }
     if (k !== 'x') draw();
   });
   async function save() {
@@ -142,9 +145,14 @@ async function openCutter(an, j) {
     const blob = await new Promise(r => c.toBlob(r, 'image/png')); if (!blob) throw new Error('the browser could not make the picture');
     let png = new Uint8Array(await blob.arrayBuffer()); const ppm = density(new Uint8Array(await file.arrayBuffer())); if (ppm) png = withPhys(png, ppm);
     const name = f.name.replace(/\.[a-z0-9]+$/i, '') + ' (background removed).png', out = new File([png], name, { type: 'image/png' });
-    const up = await driveUpload(out, 'Animals/' + an), r2 = anMk(an), item = { name, url: up.url, id: up.id, at: now(), by: S.user, img: true, w: W, h: H, of: f.id };
-    let th = await thumb(c, 'image/webp'); if (!/^data:image\/webp/.test(th)) th = await thumb(c, 'image/png'); if (roomFor(r2, th)) item.th = th;
-    LOCAL.set(up.id, out); r2.files.push(item); commit(); render(); toast('Saved next to the photo in Google Drive: ' + W + ' × ' + H + ' pixels, the same as the original.');
+    let th = await thumb(c, 'image/webp'); if (!/^data:image\/webp/.test(th)) th = await thumb(c, 'image/png');
+    // The picture is ready: the window closes now and the upload joins the waiting list, so the next animal need not wait for it.
+    const pid = S.project;
+    queueUpload(an + ': ' + name, spot(pid, an), async () => {
+      const up = await driveUpload(out, 'Animals/' + an, pid), r2 = anMkIn(pid, an), item = { name, url: up.url, id: up.id, at: now(), by: S.user, img: true, w: W, h: H, of: f.id };
+      if (roomFor(r2, th)) item.th = th; LOCAL.set(up.id, out); r2.files.push(item); commit(); softRender();
+    });
+    softRender(); toast('Cut-out made (' + W + ' × ' + H + ' pixels, the same as the photo). It is uploading in the background.');
   }
 }
 
@@ -208,6 +216,7 @@ export const photoActions = {
     return false;
   },
   phCut: d => { openCutter(S.selAnimal, +d.j); return false; },
+  phPick: () => { const pid = S.project, an = S.selAnimal; if (!an || !pid) return false; pickFiles(true, fs => { fs.forEach(f => sendToAnimal(pid, an, f)); softRender(); }); return false; },
   phNoDrive: () => { toast('Uploads need Google Drive switched on for the lab: Lab and access, Google Drive. Until then, paste a link under "Or add a link".'); return false; },
   anData: d => { S.modal = { type: 'anData', an: d.an }; },
 };

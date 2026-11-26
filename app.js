@@ -20,6 +20,7 @@ import './js/animals.js';
 import './js/lab.js';
 import './js/plan.js';
 import './js/duties.js';
+import './js/export.js';
 import './js/modal.js';
 import './js/actions.js';
 import './js/map.js';

@@ -192,6 +192,18 @@ function whoIs_(token) {
   if (!u || !u.email || !u.emailVerified) throw new Error('your sign-in could not be checked');
   return String(u.email).toLowerCase();
 }
+/** Is this file somewhere inside the folder with this ID? memo remembers folders already looked at, for a run over many files. */
+function inTop_(file, top, memo) {
+  const seen = []; let ps = file.getParents(), hop = 0, ok = false;
+  while (ps.hasNext() && hop++ < 8) {
+    const p = ps.next(), id = p.getId();
+    if (id === top || memo[id] === true) { ok = true; break; }
+    if (memo[id] === false) break;
+    seen.push(id); ps = p.getParents();
+  }
+  seen.forEach(function (id) { memo[id] = ok; });
+  return ok;
+}
 function doGet() { return json_({ ok: true, service: 'Lab Bench Tracker uploads' }); }
 function doPost(e) {
   try {
@@ -211,7 +223,31 @@ function doPost(e) {
       try { sheet_().appendRow(['drive', cell_(who), cell_('Deleted ' + nm + ' (' + proj.data.name + ')'), '', new Date(), 'sent', '', '', 1]); } catch (err) {}
       return json_({ ok: true, name: nm });
     }
-    if (q.action === 'fetch') {                 // hand a stored photo back to the tracker (for the background remover); only files inside this study's folder
+    if (q.action === 'meta') {                  // for an export: which of these files are still in this study's folder, what kind each is and how big
+      const top = folder_(proj).folder.getId(), memo = {};
+      return json_({ ok: true, files: (q.ids || []).slice(0, 50).map(function (id) {
+        id = String(id || '');
+        try {
+          const f = DriveApp.getFileById(id);
+          if (f.isTrashed()) return { id: id, ok: false, err: 'it is in the Drive bin' };
+          if (!inTop_(f, top, memo)) return { id: id, ok: false, err: 'it is not in this study\'s Drive folder' };
+          return { id: id, ok: true, name: f.getName(), type: f.getMimeType(), size: f.getSize() };
+        } catch (err) { return { id: id, ok: false, err: 'it could not be opened in Drive (deleted, or not shared with the account that runs the lab script)' }; }
+      }) });
+    }
+    if (q.action === 'preview') {               // Drive's own picture of a file the browser cannot show (a TIFF, for example); only files inside this study's folder
+      const f = DriveApp.getFileById(String(q.id || ''));
+      if (!inTop_(f, folder_(proj).folder.getId(), {})) throw new Error('that file is not in this study\'s folder');
+      let b = null;
+      try {
+        const r = UrlFetchApp.fetch('https://drive.google.com/thumbnail?id=' + encodeURIComponent(f.getId()) + '&sz=w1600', { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+        if (r.getResponseCode() < 300 && /^image\//i.test(String(r.getBlob().getContentType() || ''))) b = r.getBlob();
+      } catch (err) { b = null; }
+      if (!b) { try { b = f.getThumbnail(); } catch (err) { b = null; } }
+      if (!b) throw new Error('Drive has no preview of this file');
+      return json_({ ok: true, name: f.getName(), type: b.getContentType(), data: Utilities.base64Encode(b.getBytes()) });
+    }
+    if (q.action === 'fetch') {                 // hand a stored file back to the tracker (for the background remover and for exports); only files inside this study's folder
       const f = DriveApp.getFileById(String(q.id || '')), top = folder_(proj).folder.getId(); let ok = false, ps = f.getParents(), hop = 0;
       while (ps.hasNext() && hop++ < 8) { const p = ps.next(); if (p.getId() === top) { ok = true; break; } ps = p.getParents(); }
       if (!ok) throw new Error('that file is not in this study\'s folder');

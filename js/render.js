@@ -39,7 +39,7 @@ function gateView() {
 }
 
 /* ---------------- render ---------------- */
-const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['monitor', 'Monitoring'], ['plan', 'Study plan']];
+const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['monitor', 'Monitoring'], ['plan', 'Study plan'], ['export', 'Export']];
 const LAB_TABS = [['protos', 'Protocols'], ['reag', 'Reagents'], ['map', 'Lab map'], ['duties', 'Lab duties'], ['others', 'Other projects'], ['lab', 'Lab and access']];
 export const TABS = [...STUDY_TABS, ...LAB_TABS];
 /* a study can pick a colour; everything inside that study's space is drawn in it, for everyone */

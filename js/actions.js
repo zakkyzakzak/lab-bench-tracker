@@ -6,15 +6,17 @@ import { canon, clone, commit, dayKey, forgetPlace, leave, rebuild, stopAll, vis
 import { R, needML } from './reagents.js';
 import { P, PR, X, blank, cur, doneSess, inGrp, kids, lacking, leaves, mkRev, nameTaken, needAll, parseImport, parts, plog, prevHTML, priorOf, revOff, rounds, schedTxt, srcs, typed, vlabel, vname } from './protocols.js';
 import { IDX, buildIdx, key, newSession, notice, noticeSup, proj, projExps, runOf, sess, stOf } from './runs.js';
-import { DAYN, claimOf, dayOf, tDone, tN, tName, weekTargetMice } from './targets.js';
+import { DAYN, claimOf, day0, dayOf, tDone, tN, tName, weekTargetMice } from './targets.js';
 import { monImport, obChange, obsDays } from './monitoring.js';
 import { dueList, resChange } from './study.js';
 import { anMk, anRec, mouseRows } from './animals.js';
 import { BIO_URL, driveUpload } from './lab.js';
+import { pickFiles, queueUpload } from './uploads.js';
 import { photoActions } from './photos.js';
+import { exportActions } from './export.js';
 import { clean, nextMouse, pGroups, pTypes, planCols, planRows } from './plan.js';
 import { deal, holders, labPeople, mKey, mName } from './duties.js';
-import { render, stale, typing } from './render.js';
+import { render, softRender, stale, typing } from './render.js';
 
 let bioT = 0;
 
@@ -119,6 +121,16 @@ export const A = {
     const also = [...document.querySelectorAll('.fAlso:checked')].map(c => c.value), f = { id: nid(), proj: X(m.x).proj, key: key(m.x, m.t, m.m), name, url, at: now(), by: S.user };
     if (also.length) f.keys = [m.m, ...also].map(q => key(m.x, m.t, q)); DB.files.push(f);
   },
+  /* a result file for the run that is open: it joins the waiting list, and is linked to the run (and any other samples ticked) once it is in Drive */
+  upPick: () => {
+    const m = S.modal; if (!m || m.type !== 'run' || !X(m.x)) return false;
+    const x = X(m.x), pid = x.proj, typed = val('fName'), also = [...document.querySelectorAll('.fAlso:checked')].map(c => c.value), ks = also.length ? [m.m, ...also].map(q => key(m.x, m.t, q)) : null;
+    pickFiles(true, fs => { fs.forEach(f => queueUpload(m.m + ': ' + f.name, pid + '|run|' + key(m.x, m.t, m.m), async () => {
+      const j = await driveUpload(f, 'Results/' + (x.name || 'Experiment'), pid), rec = { id: nid(), proj: pid, key: key(m.x, m.t, m.m), name: fs.length === 1 && typed ? typed : f.name, url: j.url, did: j.id, at: now(), by: S.user }; if (ks) rec.keys = ks;
+      DB.files.push(rec); commit(); softRender();
+    })); const el = $('#fName'); if (el) el.value = ''; });
+    return false;
+  },
   fileDel: d => { DB.files = DB.files.filter(f => f.id !== d.id); },
   openSess: d => S.openSession = d.id,
   startWait: d => { sess(d.id).waitStart = now(); },
@@ -126,7 +138,7 @@ export const A = {
     const s = sess(d.id), stp = s.steps[s.stepIdx]; if (!stp) return false;
     if (stp.w && s.waitStart) { const a = Math.round((now() - s.waitStart) / MIN); if (a !== stp.m) s.notes.push({ step: s.stepIdx, mice: 'all', text: `Waited ${dur(a)} (protocol says ${dur(stp.m)})`, at: now(), by: S.user }); }
     for (const q of parts(stp)) { const need = needML(q, s.mice.length), rg = R(q.reagent); if (need && rg) rg.used = Math.round(((rg.used || 0) + need) * 1e6) / 1e6; }
-    s.waitStart = null; s.stepIdx++; if (s.stepIdx >= s.steps.length) { s.doneAt = now(); S.openSession = null; toast(s.mice.length + ' runs marked done. Add the result files from Samples or Experiments.'); }
+    s.at = { ...(s.at || {}), [s.stepIdx]: now() }; s.waitStart = null; s.stepIdx++; if (s.stepIdx >= s.steps.length) { s.doneAt = now(); S.openSession = null; toast(s.mice.length + ' runs marked done. Add the result files from Samples or Experiments.'); }
   },
   note: d => S.modal = { type: 'note', id: d.id, step: +d.step },
   noteSave: () => {
@@ -299,19 +311,33 @@ export const A = {
     notice(to, `${users[S.user].name} handed you ${tName(nt)} for the week of ${wkLabel(nt.week)}.`); noticeSup(`${users[S.user].name} handed ${tName(nt)} (week of ${wkLabel(nt.week)}) to ${nameOf(to)}.`);
     S.tpick = null; toast(`Handed ${give.length} sample${give.length === 1 ? '' : 's'} to ${nameOf(to)}.`);
   },
-  propose: () => { const D = S.draft; let lost = 0; D.items.forEach(i => { const n = i.mice.length; i.mice = i.mice.filter(m => !claimOf(i.exp, i.target, m)); lost += n - i.mice.length; }); D.items = D.items.filter(i => i.mice.length); if (lost) { toast(`${lost} sample${lost === 1 ? ' was' : 's were'} taken into a teammate's target in the meantime and removed from your plan. Check it and send again.`); return; }
-    if (!D.items.length) return false; const tg = { id: nid(), user: S.user, proj: S.project, week: D.week, status: 'proposed', excuse: null, override: D.override, items: D.items }; DB.targets.push(tg); noticeSup(`${users[S.user].name} proposed a target for ${wkLabel(tg.week)}: ${tName(tg)}. It needs your agreement.`); S.draft = newDraft(); toast('Sent to Prof Kaur.'); },
+  propose: () => { const D = S.draft; let lost = 0; D.items.forEach(i => { const n = i.mice.length; i.mice = i.mice.filter(m => !claimOf(i.exp, i.target, m)); for (const m in i.d || {}) if (!i.mice.includes(m)) delete i.d[m]; lost += n - i.mice.length; }); D.items = D.items.filter(i => i.mice.length); if (lost) { toast(`${lost} sample${lost === 1 ? ' was' : 's were'} taken into a teammate's target in the meantime and removed from your plan. Check it and send again.`); return; }
+    if (!D.items.length) return false;
+    // one target per week, so each week is agreed, tracked and (if missed) explained by itself; the days travel with it
+    const weeks = [...new Set(D.items.map(i => i.week))].sort((a, b) => a - b);
+    for (const w of weeks) { const tg = { id: nid(), user: S.user, proj: S.project, week: w, status: 'proposed', excuse: null, override: D.override, items: D.items.filter(i => i.week === w).map(i => { const o = { exp: i.exp, target: i.target, mice: [...i.mice] }; if (i.d && Object.keys(i.d).length) o.d = { ...i.d }; return o; }) }; DB.targets.push(tg); noticeSup(`${users[S.user].name} proposed a target for ${wkLabel(tg.week)}: ${tName(tg)}. It needs your agreement.`); }
+    S.draft = newDraft(); toast(weeks.length > 1 ? `Sent to Prof Kaur as ${weeks.length} weekly targets.` : 'Sent to Prof Kaur.'); },
   dPick: d => { const p = S.draft.pick, [x, t] = S.draft.exp.split('|'); if (claimOf(x, t, d.m)) return false; p.has(d.m) ? p.delete(d.m) : p.add(d.m); }, dClear: () => S.draft.pick.clear(),
-  dNext: () => { const D = S.draft, [x, t] = D.exp.split('|'), pl = new Set(D.items.filter(i => i.exp === x && i.target === t).flatMap(i => i.mice)); D.pick.clear(); for (const m of proj().samples) { if (D.pick.size >= 25) break; if (!pl.has(m.id) && stOf(x, t, m.id) === 'todo' && !claimOf(x, t, m.id)) D.pick.add(m.id); } },
-  dAdd: () => { const D = S.draft, [x, t] = D.exp.split('|'); if (!D.pick.size) return false; D.items.push({ exp: x, target: t, mice: [...D.pick] }); D.pick.clear(); D.override = false; },
-  dDel: d => { S.draft.items.splice(+d.i, 1); S.draft.override = false; }, dWkSet: d => { S.draft.week = +d.w; S.draft.override = false; },
+  dNext: () => { const D = S.draft, [x, t] = D.exp.split('|'), pl = new Set(D.items.filter(i => i.exp === x && i.target === t).flatMap(i => i.mice)); DB.targets.forEach(q => { if (q.user === S.user && q.status !== 'change' && q.week >= WK) q.items.forEach(i => { if (i.exp === x && i.target === t) i.mice.forEach(m => pl.add(m)); }); });
+    D.pick.clear(); for (const m of proj().samples) { if (D.pick.size >= 25) break; if (!pl.has(m.id) && stOf(x, t, m.id) === 'todo' && !claimOf(x, t, m.id)) D.pick.add(m.id); } },
+  /* put the clicked samples on one day of one week (day -1: that week, no fixed day) */
+  dDay: d => {
+    const D = S.draft, [x, t] = D.exp.split('|'), w = +d.w, day = +d.d; if (!D.pick.size) { toast('Click the samples first, then the day.'); return false; }
+    if (day >= 0 ? w + day * DAY < day0() : w + 7 * DAY <= day0()) { toast('That day has already passed.'); return false; }
+    for (const i of D.items) if (i.exp === x && i.target === t) { i.mice = i.mice.filter(m => !D.pick.has(m)); for (const m of D.pick) delete i.d[m]; }   // a sample sits on one day only
+    let it = D.items.find(i => i.week === w && i.exp === x && i.target === t); if (!it) D.items.push(it = { week: w, exp: x, target: t, mice: [], d: {} });
+    for (const m of D.pick) { it.mice.push(m); if (day >= 0) it.d[m] = day; }
+    D.items = D.items.filter(i => i.mice.length); toast(`${D.pick.size} sample${D.pick.size === 1 ? '' : 's'} planned for ${day < 0 ? 'the week of ' + wkLabel(w) : DAYN[day] + ' ' + new Date(w + day * DAY).getDate()}.`); D.pick.clear(); D.override = false;
+  },
+  dDel: d => { const D = S.draft, i = D.items[+d.i], day = +d.d; if (!i) return false; const out = i.mice.filter(m => dayOf(i, m) === day); i.mice = i.mice.filter(m => !out.includes(m)); out.forEach(m => delete i.d[m]); D.items = D.items.filter(q => q.mice.length); D.override = false; },
+  dWkSet: d => { S.draft.week = Math.min(+d.w, WK + 25 * 7 * DAY); S.draft.override = false; },
   tpick: d => { const id = d.id, k = +d.k; if (!S.tpick || S.tpick.t !== id || S.tpick.k !== k) S.tpick = { t: id, k, set: new Set() }; const p = S.tpick.set; p.has(d.m) ? p.delete(d.m) : p.add(d.m); },
   tDay: d => {
     const t = DB.targets.find(q => q.id === d.id), sel = S.tpick; if (!t || t.user !== S.user || !sel || sel.t !== t.id || !sel.set.size) { toast('Click the samples first, then the day.'); return false; }
     const i = t.items[sel.k], day = +d.d; i.d = { ...(i.d || {}) }; for (const m of sel.set) { if (day < 0) delete i.d[m]; else i.d[m] = day; } if (!Object.keys(i.d).length) delete i.d;
     toast(day < 0 ? `${sel.set.size} taken off their day.` : `${sel.set.size} placed on ${DAYN[day]}.`); S.tpick = null;
   },
-  tToday: d => { const t = DB.targets.find(q => q.id === d.id), k = +d.k, i = t && t.items[k], td = (new Date().getDay() + 6) % 7; if (!i) return false; S.tpick = { t: t.id, k, set: new Set(i.mice.filter(m => dayOf(i, m) === td && stOf(i.exp, i.target, m) === 'todo')) }; },
+  tToday: d => { const t = DB.targets.find(q => q.id === d.id), k = +d.k, i = t && t.items[k], td = (new Date().getDay() + 6) % 7; if (!i) return false; S.tpick = { t: t.id, k, set: new Set(i.mice.filter(m => (d.late ? dayOf(i, m) >= 0 && dayOf(i, m) < td : dayOf(i, m) === td) && stOf(i.exp, i.target, m) === 'todo')) }; },
   tstart: () => {
     const t = DB.targets.find(q => q.id === S.tpick.t), i = t.items[S.tpick.k], n = leaves(P(X(i.exp).proto))[0];
     if (!cur(n).steps.length) { toast('This protocol has no steps yet. Build them under Protocols first.'); return false; }
@@ -330,7 +356,7 @@ export const A = {
   rmMem: d => { const p = PR(d.p); p.members = p.members.filter(u => u !== d.u); },
 };
 /* Anything that deletes or removes asks first. Each entry gives the question, what is lost, and the button text. */
-Object.assign(A, photoActions);
+Object.assign(A, photoActions, exportActions);
 export const SURE = {
   blDel: d => ['Remove this task from your backlog?', (DB.backlog.find(b => b.id === d.id) || {}).text || '', 'Remove task'],
   // deleting a whole project asks for its name to be typed instead (see delProj)
@@ -393,17 +419,6 @@ document.addEventListener('change', ev => {
 });
 document.addEventListener('change', ev => {
   const el = ev.target;
-  if (el.id === 'fUp' || el.id === 'afUp') {                     // a file chosen for upload to the study's Drive folder
-    const f = el.files && el.files[0]; if (!f) return; const run = el.id === 'fUp', m = S.modal, an = S.selAnimal;
-    const also = run ? [...document.querySelectorAll('.fAlso:checked')].map(c => c.value) : [], label = (run ? val('fName') : val('afName')) || f.name;
-    const path = run ? 'Results/' + (X(m.x)?.name || 'Experiment') : 'Animals/' + an; toast('Uploading ' + f.name + '…');
-    driveUpload(f, path).then(j => {
-      if (run) { const rec = { id: nid(), proj: X(m.x).proj, key: key(m.x, m.t, m.m), name: label, url: j.url, at: now(), by: S.user }; if (also.length) rec.keys = [m.m, ...also].map(q => key(m.x, m.t, q)); DB.files.push(rec); }
-      else anMk(an).files.push({ name: label, url: j.url, at: now(), by: S.user });
-      commit(); render(); toast(f.name + ' is in the study\'s Drive folder.');
-    }).catch(err => toast('The upload did not work: ' + (err.message || 'no answer from Drive') + '.'));
-    return;
-  }
   if (el.id === 'monFile') {
     const f = el.files && el.files[0]; if (!f) return; const snap = $('#monSnap') ? $('#monSnap').checked : true;
     f.text().then(t => { const msg = monImport(t, snap); commit(); S.monView = 'status'; render(); toast(msg); }).catch(err => { rebuild(); toast('That file could not be used: ' + (err.message || 'it could not be read') + '.'); });
