@@ -38,7 +38,7 @@ The app starts empty: there is no example data.
 
 ## Who can see what
 - Supervisors read and write every project. Members only the projects that list them.
-  Admins manage lab membership but do not see other people's projects.
+  Admins manage lab membership but do not see other people's projects. The lab owner is the exception: the owner sees and can open every project, like a supervisor.
 - Protocols, reagents, the lab map, duties and requests are shared by everyone in the lab.
 - Each person's backlog is private to them. Notices go only to the person they are for.
 

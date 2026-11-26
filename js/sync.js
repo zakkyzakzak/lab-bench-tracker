@@ -2,7 +2,7 @@
 // from the server, and commit(), which writes only what an action changed.
 
 import * as B from '../backend.js';
-import { $, DB, MIN, S, followLink, dur, e, errMsg, isMember, isSup, nameOf, newDraft, now } from './core.js';
+import { $, DB, MIN, S, followLink, dur, e, errMsg, isMember, isSup, seesAll, nameOf, newDraft, now } from './core.js';
 import { P, X } from './protocols.js';
 import { buildIdx, sess } from './runs.js';
 import { syncProgress } from './study.js';
@@ -123,7 +123,7 @@ function col(prefix) {
 export const byName = (a, b) => String(a.name).localeCompare(String(b.name)), byAt = (a, b) => (a.at || 0) - (b.at || 0);
 export function rebuild() {
   DB.lab = SRV.has('config/lab') ? clone(SRV.get('config/lab')) : null;
-  const want = S.fb && isMember() ? (isSup() ? 'sup' : 'mem') : null;
+  const want = S.fb && isMember() ? (seesAll() ? 'sup' : 'mem') : null;
   if (want !== dataMode) { if (want) startData(want); else stopData(); }
   DB.projects = col('projects').map(p => ({ desc: '', ...p, members: p.members || [], exps: p.exps || [], samples: p.samples || [] })).sort(byName);
   DB.exps = []; DB.sessions = []; DB.targets = []; DB.files = []; DB.obs = []; DB.animals = []; DB.asg = new Set();

@@ -1,3 +1,4 @@
+import { LAB_OWNER } from '../config.js';
 // Lab Bench Tracker: small helpers, the in-memory state (DB and S), people and roles,
 // and V, the list of screens that each area adds its own tab to.
 
@@ -47,6 +48,8 @@ export const realAdmin = () => admins().includes(S.user);
 export const isAdmin = () => realAdmin() && !S.asMember;   // an admin can switch to the member view to see what members see
 export const isMember = () => !!DB.lab && (isSup() || realAdmin() || (DB.lab.members || []).includes(S.user));
 export const canLab = () => isSup() || isAdmin();
+/* who sees every study without being listed in it: supervisors, and the lab owner (not while looking at the member view) */
+export const seesAll = () => isSup() || (S.user === LAB_OWNER && !S.asMember);
 export const nameOf = em => S.people.get(em)?.name || em;
 export const roleOf = em => sups().includes(em) ? 'Supervisor' : admins().includes(em) ? 'Admin' : 'Member';
 export const allPeople = () => [...new Set([...sups(), ...admins(), ...(DB.lab?.members || [])])].sort();
