@@ -358,6 +358,8 @@ export const A = {
 /* Anything that deletes or removes asks first. Each entry gives the question, what is lost, and the button text. */
 Object.assign(A, photoActions, exportActions, dutyActions);
 export const SURE = {
+  exSetDel: d => ['Remove this saved export set-up?', ((proj().xsets || []).find(q => q.id === d.id) || {}).name || '', 'Remove set-up'],
+  exReqDel: () => ['Remove this custom export request?', 'It is removed for everyone in the study.', 'Remove request'],
   blDel: d => ['Remove this task from your backlog?', (DB.backlog.find(b => b.id === d.id) || {}).text || '', 'Remove task'],
   // deleting a whole project asks for its name to be typed instead (see delProj)
   delT: () => ['Withdraw this target?', 'It is removed for you and for your supervisor.', 'Withdraw target'],

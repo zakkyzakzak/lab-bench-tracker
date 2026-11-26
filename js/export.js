@@ -3,18 +3,19 @@
 // A file that shows several samples (one gel, five lanes) is exported once and lists all of its samples.
 
 import * as B from '../backend.js';
-import { DAY, DB, S, V, e, flag, nameOf, now, safeUrl, toast } from './core.js';
+import { LAB_OWNER } from '../config.js';
+import { $, DAY, DB, S, V, e, flag, nameOf, nid, now, safeUrl, toast } from './core.js';
 import { dayKey } from './sync.js';
 import { softRender } from './render.js';
 import { R, fmtV, needML } from './reagents.js';
 import { P, X, dty, info, timeTxt, vname } from './protocols.js';
-import { key, noProj, proj, projExps } from './runs.js';
+import { key, noProj, notice, proj, projExps } from './runs.js';
 import { DAYN, TS, dayOf, iName, tDone, tN, tState } from './targets.js';
 import { tvol } from './monitoring.js';
-import { DOC_BOX, docxBlob, fileSafe, fitBox, lib, pptxBlob, saveBlob, sha, shrink, xlsxBlob } from './office.js';
+import { DOC_BOX, DOC_WIDE, docxBlob, fileSafe, fitBox, lib, pptxBlob, saveBlob, sha, shrink, xlsxBlob } from './office.js';
 
 /* ---------------- what is being exported ---------------- */
-const O = { proj: null, off: new Set(), from: '', to: '', animals: true };     // the choices at the top of the tab
+const O = { proj: null, off: new Set(), from: '', to: '', more: false };     // the choices at the top of the tab
 const hm = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const dtm = t => t ? dty(t) + ' ' + hm(t) : '', day = t => t ? dty(t) : '', D = t => t ? new Date(t) : '';
 const who = em => em ? nameOf(em) : '', pl = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
@@ -44,22 +45,28 @@ export function units(sc) {
   const unit = (id, f, did) => {
     let u = U.get(id); if (!u) U.set(id, u = { ident: id, did: '', url: '', names: [], links: new Map(), animals: new Set(), recs: 0, at: 0, by: '' });
     u.recs++; recs++; u.did = u.did || did; if (f.name && !u.names.includes(f.name)) u.names.push(f.name); if (!u.url && safeUrl(f.url)) u.url = f.url;
-    if (f.at && (!u.at || f.at < u.at)) { u.at = f.at; u.by = f.by || ''; } if (f.w) { u.ow = f.w; u.oh = f.h; } return u;
+    if (f.at && (!u.at || f.at < u.at)) { u.at = f.at; u.by = f.by || ''; } if (f.w) { u.ow = f.w; u.oh = f.h; } if (f.th && !u.th) u.th = f.th; return u;
   };
   for (const f of DB.files) {
     if (f.proj !== sc.p.id || !sc.inR(f.at || 0)) continue;
     const ks = [...new Set((f.keys && f.keys.length ? f.keys : [f.key]).filter(Boolean))].map(k => { const a = String(k).split('|'); return { k, x: a[0], t: a[1] || '', m: a.slice(2).join('|') }; }).filter(q => sc.ids.has(q.x));
-    if (f.kind === 'graph') { const did = f.did || driveId(f.url), u = unit(did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + f.id, f, did); u.graph = f.all ? ['All groups'] : [...new Set((u.graph || []).concat(f.groups || []))]; continue; }   // a graph belongs to groups, not to runs
+    if (f.kind === 'graph') { const did = f.did || driveId(f.url), u = unit(did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + f.id, f, did); u.graph = f.all ? ['All groups'] : [...new Set((u.graph || []).concat(f.groups || []))]; u.kind = 'graph'; continue; }   // a graph belongs to groups, not to runs
     if (!ks.length) continue;
     const did = f.did || driveId(f.url), id = did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + f.id, u = unit(id, f, did);
+    u.kind = u.kind || (f.kind === 'gel' ? 'gel' : 'result');
     for (const q of ks) { pairs.add(id + '\n' + q.k); if (u.links.has(q.k)) repeat++; else u.links.set(q.k, q); }
   }
-  if (O.animals) for (const a of DB.animals) {
+  for (const a of DB.animals) {
     if (a.proj !== sc.p.id) continue;
-    for (const f of a.files || []) { if (!sc.inR(f.at || 0)) continue; const did = f.id || driveId(f.url), id = did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + a.id + '|' + f.name + '|' + f.at, u = unit(id, f, did); u.animals.add(a.id); if (f.of) u.cut = true; }
+    for (const f of a.files || []) { if (!sc.inR(f.at || 0)) continue; const did = f.id || driveId(f.url), id = did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + a.id + '|' + f.name + '|' + f.at, u = unit(id, f, did); u.animals.add(a.id); if (f.of) { u.cut = true; u.of = f.of; } u.kind = u.kind || (f.of ? 'cut' : f.kind && f.kind !== 'tumour' ? 'other' : f.img ? 'tumour' : 'other'); }
   }
   const list = [...U.values()];
-  for (const u of list) { const ls = [...u.links.values()]; u.xi = ls.length ? Math.min(...ls.map(q => xi.get(q.x))) : 1e9; u.x = ls.length ? sc.xs[u.xi] : null; u.tg = ls.length ? ls.filter(q => q.x === u.x.id).map(q => q.t).sort()[0] : ''; u.name = u.names[0] || 'Unnamed file'; }
+  for (const u of list) { const ls = [...u.links.values()]; u.xi = ls.length ? Math.min(...ls.map(q => xi.get(q.x))) : 1e9; u.x = ls.length ? sc.xs[u.xi] : null; u.tg = ls.length ? ls.filter(q => q.x === u.x.id).map(q => q.t).sort()[0] : ''; u.name = u.names[0] || 'Unnamed file';
+    // whose it is, for laying pictures out by group: the animal or sample it shows, and the group or groups that belong to
+    const ag = id => sc.group(id) || (sc.p.samples.find(m => m.id.split(' ')[0] === id) || {}).group || '', ms = [...new Set(ls.map(q => q.m))];
+    u.groups = u.graph ? (u.graph[0] === 'All groups' ? ['*'] : u.graph) : [...new Set([...u.animals].map(ag).concat(ms.map(sc.group)))];
+    u.who = [...u.animals, ...ms]; u.cell = u.who.length === 1 ? u.who[0] : u.kind === 'graph' || !u.who.length ? u.name : `${u.name} (${u.who.length} samples)`;
+    u.gname = u.groups.length === 1 ? (u.groups[0] === '*' ? 'All groups' : u.groups[0] || 'No group') : u.groups.length ? 'Several groups' : 'No group'; }
   list.sort((a, b) => a.xi - b.xi || (a.tg < b.tg ? -1 : a.tg > b.tg ? 1 : 0) || a.at - b.at || (a.ident < b.ident ? -1 : 1));
   list.forEach((u, i) => { u.n = i + 1; u.no = 'F' + String(i + 1).padStart(list.length > 999 ? 4 : 3, '0'); });
   // the check: every sample-to-file link found in the tracker's records must still be there after bringing duplicates together
@@ -173,14 +180,76 @@ function rawRecord(sc) {
     protocols: [...new Set(mine(DB.exps).map(x => x.proto))].map(P).filter(Boolean) }, null, 1);
 }
 
+/* ---------------- choosing what goes in and how it is laid out ---------------- */
+/* The choices made in the builder are kept as one plain object (a "set-up"), so they can be saved, sent with a request and used again:
+     koff, goff   the kinds of file and the groups left out
+     layout       single (one file per slide), grid (many per slide) or pairs (tumour photo beside its cut-out)
+     cols, rows   pictures across and down in a grid
+     grp          how groups are shown in a grid: none, side (group name beside its rows), top (a column per group), slide (a slide per group) */
+const KINDS = [['tumour', 'Tumour images'], ['cut', 'Background removed'], ['graph', 'Graphs'], ['gel', 'Gel images'], ['result', 'Result files from bench sessions'], ['other', 'Other files']];
+const LAYS = { single: ['One per slide', 'Each file large on its own slide or page, with its samples and details. Best as a record.'], grid: ['Grid', 'Many pictures on one slide, like a table, with the sample name under each. Each kind of file gets its own slides.'], pairs: ['Pairs', 'Each tumour photo beside its background-removed version, several animals to a slide.'] };
+const GRPS = [['side', 'Group name at the side, its pictures in rows beside it'], ['top', 'Group name on top, its pictures in a column below it'], ['slide', 'Each group starts its own slide'], ['none', 'Groups not separated: the group is written under each picture']];
+const BL = { proj: null, koff: new Set(), goff: new Set(), layout: 'single', cols: 5, rows: 4, grp: 'side' };
+const ALLOPT = { koff: [], goff: [], layout: 'single', cols: 5, rows: 4, grp: 'none' };
+const snapOpt = () => ({ koff: [...BL.koff], goff: [...BL.goff], layout: BL.layout, cols: BL.cols, rows: BL.rows, grp: BL.grp });
+const useOpt = o => { BL.koff = new Set(o.koff || []); BL.goff = new Set(o.goff || []); BL.layout = LAYS[o.layout] ? o.layout : 'single'; BL.cols = Math.max(1, Math.min(12, +o.cols || 5)); BL.rows = Math.max(1, Math.min(8, +o.rows || 4)); BL.grp = GRPS.some(g => g[0] === o.grp) ? o.grp : 'side'; };
+const nat = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+const optText = o => `${LAYS[o.layout][0]}${o.layout === 'single' ? '' : `, ${o.cols} across by ${o.rows} down, ${(GRPS.find(g => g[0] === o.grp) || GRPS[0])[1].toLowerCase()}`}${o.koff.length ? '; without ' + o.koff.map(k => (KINDS.find(q => q[0] === k) || [k, k])[1].toLowerCase()).join(', ') : ''}${o.goff.length ? '; without the groups ' + o.goff.join(', ') : ''}`;
+/* what the choices come to: the files in the order they will appear, in sections by kind */
+function plan(sc, U, o) {
+  const gOrder = [...new Set(sc.p.samples.map(m => m.group || 'No group'))], gi = g => { const i = gOrder.indexOf(g); return i < 0 ? 1e6 : i; };
+  const ok = u => !o.koff.includes(u.kind) && (u.groups.length ? u.groups : ['']).some(g => g === '*' || !o.goff.includes(g || 'No group'));
+  const chosen = U.list.filter(ok).sort((a, b) => gi(a.gname) - gi(b.gname) || nat(a.gname, b.gname) || nat(a.cell, b.cell) || a.n - b.n);
+  const cutOf = new Map(), used = new Set(), sections = []; if (o.layout === 'pairs') for (const u of chosen) if (u.kind === 'cut' && u.of) cutOf.set(u.of, u);
+  for (const [k, label] of KINDS) {
+    const items = chosen.filter(u => u.kind === k && !used.has(u)); if (!items.length) continue;
+    if (k === 'tumour' && cutOf.size) sections.push({ kind: k, title: 'Tumour images, each with its background removed', pairs: true, items: items.map(u => { const c = cutOf.get(u.did) || null; if (c) used.add(c); return { u, pair: c }; }) });
+    else sections.push({ kind: k, title: label, items: items.map(u => ({ u })) });
+  }
+  return { sections, chosen, list: sections.flatMap(q => q.items.flatMap(i => i.pair ? [i.u, i.pair] : [i.u])) };
+}
+/* the sheets of a grid: which picture sits in which cell of which slide. The preview and the real export both use this. */
+function sheets(sections, o) {
+  const out = [], C = Math.max(1, o.cols), R = Math.max(1, o.rows);
+  for (const sec of sections) {
+    const cell = (it, bare) => ({ us: sec.pairs ? [it.u, it.pair] : [it.u], label: it.u.cell + (bare || it.u.gname === 'No group' ? '' : ' · ' + it.u.gname) });
+    const byG = () => { const m = new Map(); for (const it of sec.items) (m.get(it.u.gname) || m.set(it.u.gname, []).get(it.u.gname)).push(it); return [...m]; };
+    const flow = (items, title, bare) => { for (let i = 0; i < items.length; i += C * R) { const pg = items.slice(i, i + C * R), rows = []; for (let j = 0; j < pg.length; j += C) rows.push({ side: null, cells: pg.slice(j, j + C).map(it => cell(it, bare)) }); out.push({ title, cols: C, per: R, top: null, rows }); } };
+    if (o.grp === 'slide') for (const [g, items] of byG()) flow(items, sec.title + ' · ' + g, true);
+    else if (o.grp === 'side') {
+      let rows = []; const push = () => { if (rows.length) out.push({ title: sec.title, cols: C, per: R, top: null, rows }); rows = []; };
+      for (const [g, items] of byG()) for (let i = 0; i < items.length; i += C) { if (rows.length >= R) push(); rows.push({ side: i === 0 ? g : rows.length ? '' : g + ' (continued)', cells: items.slice(i, i + C).map(it => cell(it, true)) }); }
+      push();
+    } else if (o.grp === 'top') {
+      const G = byG(), n = Math.max(0, ...G.map(q => q[1].length));
+      for (let p0 = 0; p0 < n; p0 += R) { const rows = []; for (let r = p0; r < Math.min(n, p0 + R); r++) rows.push({ side: null, cells: G.map(q => q[1][r] ? cell(q[1][r], true) : null) }); out.push({ title: sec.title, cols: G.length, per: R, top: G.map(q => q[0]), rows }); }
+    } else flow(sec.items, sec.title, false);
+  }
+  const count = {}, seen = {}; out.forEach(q => { count[q.title] = (count[q.title] || 0) + 1; });
+  out.forEach(q => { if (count[q.title] > 1) { const t = q.title; seen[t] = (seen[t] || 0) + 1; q.title = `${t} (${seen[t]} of ${count[t]})`; } });
+  return out;
+}
+/* sections again from the files a piece of the export holds, so a long export can be written in parts */
+const sectionsOf = (job, us) => { const set = new Set(us); return job.plan.sections.map(q => ({ ...q, items: q.items.filter(i => set.has(i.u)) })).filter(q => q.items.length); };
+const sheetSlides = (shs, im) => shs.map(sh => ({ title: sh.title, sheet: { cols: sh.cols, per: sh.per, top: sh.top, rows: sh.rows.map(r => ({ side: r.side, cells: r.cells.map(c => c && { label: c.label, imgs: c.us.map(u => { const g = u && im(u); return g ? { data: g.data, w: g.pw, h: g.ph } : null; }) }) })) } }));
+function sheetBlocks(shs, im) {
+  return shs.flatMap(sh => {
+    const side = sh.rows.some(r => r.side != null), sw = side ? 13 : 0, cwp = (100 - sw) / sh.cols, bw = DOC_WIDE[0] * cwp / 100 - 18, bh = DOC_WIDE[1] / sh.per - 32;
+    const cellOf = c => { if (!c) return ''; const k = c.us.length; return { imgs: c.us.map(u => { const g = u && im(u); return g ? fitBox(g, [bw / k - (k > 1 ? 4 : 0), bh]) : null; }), lines: [c.label + (c.us.some(u => u && im(u)) ? '' : ' (not shown)')] }; };
+    return [{ h: 2, t: sh.title, brk: true }, { table: { nohead: !sh.top, head: [...(side ? [''] : []), ...(sh.top || Array(sh.cols).fill(''))], w: [...(side ? [sw] : []), ...Array(sh.cols).fill(Math.floor(cwp))], rows: sh.rows.map(r => [...(side ? [{ lines: [r.side || ''], b: true }] : []), ...Array.from({ length: sh.cols }, (_, i) => cellOf(r.cells[i]))]) } }];
+  });
+}
+
 /* ---------------- the pages of a data document ---------------- */
 const head = (sc, t) => [{ h: 1, t: t + ': ' + sc.p.name }, { p: `Exported from Lab Bench Tracker on ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, sm: true }];
 const sumLine = U => `${pl(U.list.length, 'file')}, from ${pl(U.recs, 'link')} recorded in the tracker, showing ${pl(U.samples, 'sample')}.${U.merged ? ` ${pl(U.merged, 'link')} pointed at a file that was already counted, so that file appears once here and lists every sample it shows.` : ''} ${U.ok ? `Check passed: all ${U.linkN} sample-to-file links are kept.` : 'CHECK FAILED: the links in this export do not match the tracker. Do not rely on it; tell the lab admin.'}`;
-function frontBlocks(sc, U) {
-  const b = [...head(sc, 'Result files and images'), { p: 'Every file appears once, however many samples it shows. A gel with five lanes is one entry that lists its five samples; fifty separate images are fifty entries. File numbers (F001 and so on) are the same in the lab book export made with the same selection.' }, { p: sumLine(U) }];
+function frontBlocks(sc, U0, list, full, o) {
+  const U = { ...U0, list }, b = [...head(sc, 'Result files and images'), { p: 'Every file appears once, however many samples it shows. A gel with five lanes is one entry that lists its five samples; fifty separate images are fifty entries. File numbers (F001 and so on) are the same in the lab book export made with the same selection.' }, { p: full ? sumLine(U) : `${pl(list.length, 'file')} chosen for this export. Set-up: ${optText(o)}.` }];
+  if (o.layout !== 'single') return b;
   b.push({ h: 2, t: 'Files in this export' }, { table: { head: ['File', 'Name', 'Shows', 'Samples', 'Added'], w: [8, 26, 24, 30, 12], rows: U.list.map(u => [u.no, u.name, covers(u).map(c => c.label).join('; '), covers(u).flatMap(c => c.ms).join(', '), day(u.at)]) } });
   const rows = []; for (const x of sc.xs) for (const t of x.targets || ['']) for (const m of sc.p.samples) { const us = U.byKey.get(key(x.id, t, m.id)); if (us) rows.push([m.id, m.group || '', xName(x.id, t), us.map(u => u.no).join(', ')]); }
   if (rows.length) b.push({ h: 2, t: 'Which files show each sample' }, { table: { head: ['Sample', 'Group', 'Experiment', 'Files'], w: [26, 16, 30, 28], rows } });
+  if (!full) return b;
   if (U.gaps.length) b.push({ h: 2, t: 'Finished runs with no result file' }, { p: `${pl(U.gaps.length, 'finished run')} in this selection ${U.gaps.length === 1 ? 'has' : 'have'} no file attached. That may be right (not every experiment gives a file); they are listed so nothing is missed by accident.`, sm: true },
     { table: { head: ['Experiment', 'Sample', 'Finished'], rows: U.gaps.slice(0, 600).map(q => [xName(q.s.exp, q.s.target), q.m, day(q.s.doneAt)]) } });
   for (const x of sc.xs) for (const t of x.targets || ['']) {
@@ -197,7 +266,7 @@ function unitBlocks(u, img) {
   return b;
 }
 const KNOWN = ['shown', 'saved', 'notimg', 'noprev', 'dup', 'link', 'nolink', 'nodrive', 'gone', 'failed', 'none'];
-const repList = job => job.only || job.U.list.slice(job.i0);
+const repList = job => job.only || job.list0.slice(job.i0);
 const tally = list => { const c = {}; for (const u of list) c[u.st || 'none'] = (c[u.st || 'none'] || 0) + 1; return c; };
 function reportLines(job, list) {
   const c = tally(list), n = k => c[k] || 0, L = [];
@@ -221,7 +290,7 @@ const unitSlide = (u, img) => ({ title: `${u.no} · ${u.name}`, sub: (coverTxt(u
 /* Files come through the lab's Drive script one at a time. Google limits how much a script may do in a day and how
    fast, so there is a pause between files that grows when Drive is slow or refuses, and shrinks again when it answers.
    After several files in a row fail, the export stops and waits for the person rather than keep knocking. */
-const PACE = { min: 1000, max: 30000, waits: [5, 20, 60], trip: 4 }, PER_DOC = 120, VOL = 350e6, STOP = { stop: true };
+const PACE = { min: 1000, max: 30000, waits: [5, 20, 60], trip: 4 }, PER_DOC = 120, PER_SHEET = 360, VOL = 350e6, STOP = { stop: true };
 const PERM = /not in this study|larger than|not in the lab|switched off|cannot be stored|no item|not found|invalid argument|is not in|access denied|do not have permission|has no preview/i;
 let J = null;                                   // the export that is running, or the report of the last one
 const busy = () => !!J && J.state !== 'done';
@@ -259,7 +328,7 @@ async function metaAll(job, list) {
 const READS = /^image\/(jpeg|png|webp|gif|bmp|avif|x-icon|svg)/i;
 async function preview(job, u) {            // a picture the browser cannot read: Drive's own preview of it, if the script can give one
   if (job.noPrev) return null;
-  try { const j = await paced(job, u, { action: 'preview', id: u.did }); return await shrink(unb64(j.data, j.type)); } catch (err) { if (err === STOP) throw err; if (err.old) job.noPrev = true; return null; }
+  try { const j = await paced(job, u, { action: 'preview', id: u.did }); return await shrink(unb64(j.data, j.type), job.imgMax); } catch (err) { if (err === STOP) throw err; if (err.old) job.noPrev = true; return null; }
 }
 /* one file: fetch it, save the original and/or make its picture for the document. Sets u.st; gives the picture or null. */
 async function one(job, u, { doc, orig, out, seen }) {
@@ -277,7 +346,7 @@ async function one(job, u, { doc, orig, out, seen }) {
   u.fname = f.name; u.type = f.type; u.size = f.blob.size; job.bytes += u.size;
   const h = await sha(f.blob); if (h && seen.has(h)) { u.st = 'dup'; u.dupOf = seen.get(h); return null; } if (h) seen.set(h, u.no);
   if (orig) { await out.add(`files/${fileSafe(u.x ? u.x.name : u.graph ? 'Graphs' : 'Animal profiles')}/${u.no} ${fileSafe(f.name)}`, f.blob); u.saved = true; }
-  let im = null; if (doc) { im = await shrink(f.blob); if (!im && /^image\//i.test(f.type)) im = await preview(job, u); if (im && im.ow) { u.ow = u.ow || im.ow; u.oh = u.oh || im.oh; } }
+  let im = null; if (doc) { im = await shrink(f.blob, job.imgMax); if (!im && /^image\//i.test(f.type)) im = await preview(job, u); if (im && im.ow) { u.ow = u.ow || im.ow; u.oh = u.oh || im.oh; } }
   u.st = im ? 'shown' : orig ? 'saved' : /^image\//i.test(f.type) ? 'noprev' : 'notimg'; return im;
 }
 /* where finished pieces go: straight to Downloads, or into zip files of a few hundred megabytes each */
@@ -290,8 +359,8 @@ function sink(job, zip) {
   };
 }
 async function work(job) {
-  const { kind, sc, U } = job, doc = kind === 'docx' || kind === 'all' ? 'docx' : kind === 'pptx' ? 'pptx' : null, orig = kind === 'zip' || kind === 'all', list = job.only || U.list, rep = repList(job), out = sink(job, orig), seen = job.seen;
-  const meta = { title: `${sc.p.name}: result files and images`, by: who(S.user), foot: `${sc.p.name} · result files and images · exported ${day(now())}` }, stamp = dayKey(now());
+  const { kind, sc, U } = job, doc = kind === 'docx' || kind === 'all' ? 'docx' : kind === 'pptx' ? 'pptx' : null, orig = kind === 'zip' || kind === 'all', o = job.opt, list = job.only || job.list0, rep = repList(job), out = sink(job, orig), seen = job.seen, per = o.layout === 'single' ? PER_DOC : PER_SHEET, got = new Map();
+  const meta = { title: `${sc.p.name}: result files and images`, by: who(S.user), foot: `${sc.p.name} · result files and images · exported ${day(now())}`, landscape: o.layout !== 'single' }, stamp = dayKey(now());
   if (doc) await lib(doc); if (orig) await lib('zip');                                                    // find out now, not after an hour, if a file writer cannot be loaded
   if (kind === 'all' && !job.only && !job.resumed) {
     job.cur = 'Writing the lab book…'; drawJob();
@@ -304,10 +373,11 @@ async function work(job) {
     if (!doc || !list.length || (!pages.length && !(last && !job.docN))) return; job.docN++;
     const first = job.docN === 1 && !job.only && !job.resumed, nm = `${job.name} result files${job.only ? ' (files tried again)' : ''}${last && job.docN === 1 ? '' : ' part ' + job.docN}${orig ? '' : ' ' + stamp}.${doc}`;
     job.cur = 'Writing ' + nm + '…'; drawJob(); let blob;
-    if (doc === 'docx') blob = await docxBlob(meta, [...(first ? frontBlocks(sc, U) : head(sc, 'Result files and images, part ' + job.docN)), ...pages.flatMap(q => unitBlocks(q.u, q.img)), ...(last ? endBlocks(job, rep) : [])]);
-    else blob = await pptxBlob(meta, [...(first ? [{ title: sc.p.name, big: true, sub: 'Result files and images', lines: [`Exported ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, '', sumLine(U), '', 'Every file is one slide, however many samples it shows. The samples are listed under the title and in the notes.'] }] : []), ...pages.map(q => unitSlide(q.u, q.img)),
+    const shs = o.layout === 'single' ? null : sheets(sectionsOf(job, pages.map(q => q.u)), o), im = u => got.get(u) || null; pages.forEach(q => got.set(q.u, q.img));
+    if (doc === 'docx') blob = await docxBlob(meta, [...(first ? frontBlocks(sc, U, job.list0, kind === 'all', o) : head(sc, 'Result files and images, part ' + job.docN)), ...(shs ? sheetBlocks(shs, im) : pages.flatMap(q => unitBlocks(q.u, q.img))), ...(last ? endBlocks(job, rep) : [])]);
+    else blob = await pptxBlob(meta, [...(first ? [{ title: sc.p.name, big: true, sub: 'Result files and images', lines: [`Exported ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, '', `${pl(job.list0.length, 'file')}. Set-up: ${optText(o)}.`, '', shs ? 'Every file appears once. The name under each picture is the animal or sample it shows.' : 'Every file is one slide, however many samples it shows. The samples are listed under the title and in the notes.'] }] : []), ...(shs ? sheetSlides(shs, im) : pages.map(q => unitSlide(q.u, q.img))),
       ...(last ? (r => { const o = [{ title: 'Export report', lines: r }]; const odd = rep.filter(u => u.st !== 'shown'); for (let i = 0; i < odd.length; i += 14) o.push({ title: 'Not shown as a picture' + (odd.length > 14 ? ` (${i / 14 + 1})` : ''), lines: odd.slice(i, i + 14).map(u => `${u.no} ${u.name}: ${stText(u)}`) }); return o; })(reportLines(job, rep)) : [])]);
-    await out.add(nm, blob, true); pages = [];
+    await out.add(nm, blob, true); pages = []; got.clear();
   };
   for (let i = job.i; i < list.length; i++) {
     if (job.stop) { job.stopped = true; break; }
@@ -315,28 +385,29 @@ async function work(job) {
     try { img = await one(job, u, { doc, orig, out, seen }); }
     catch (err) { if (err !== STOP) throw err; job.stopped = true; if (u.st !== 'failed') { u.st = ''; break; } }      // stopped part-way through this file: it is left for next time, unless it had already failed
     if (doc) pages.push({ u, img }); job.i = i + 1; if (job.stopped) break;
-    if ((doc && pages.length >= PER_DOC) || out.full()) { await flushDoc(false); await out.flush(false); job.safe = job.i; remember(job); }
+    if ((doc && pages.length >= per && !(o.layout === 'pairs' && list[i + 1] && list[i + 1].kind === 'cut')) || out.full()) { await flushDoc(false); await out.flush(false); job.safe = job.i; remember(job); }
   }
   job.stop = false; await flushDoc(true);
   if (orig) {
     job.cur = 'Writing the tables and the report…'; drawJob();
-    await out.add(kind === 'all' ? `${job.name} data tables.xlsx` : 'Files in this export.xlsx', await xlsxBlob(kind === 'all' ? tables(sc, U, true) : fileTables(U)), true);
-    await out.add('Export report.txt', [`${sc.p.name}: ${kind === 'all' ? 'full export' : 'original files'}`, `Exported from Lab Bench Tracker on ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, '', sumLine(U), '', ...reportLines(job, rep), '', ...rep.filter(u => u.st !== 'shown' && u.st !== 'saved').map(u => `${u.no}  ${u.name}  --  ${stText(u)}${u.url ? '  ' + u.url : ''}`)].join('\r\n'), true);
+    await out.add(kind === 'all' ? `${job.name} data tables.xlsx` : 'Files in this export.xlsx', await xlsxBlob(kind === 'all' ? tables(sc, U, true) : fileTables({ list: rep })), true);
+    await out.add('Export report.txt', [`${sc.p.name}: ${kind === 'all' ? 'full export' : 'original files'}`, `Exported from Lab Bench Tracker on ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, '', kind === 'all' ? sumLine(U) : 'Set-up: ' + optText(o) + '.', '', ...reportLines(job, rep), '', ...rep.filter(u => u.st !== 'shown' && u.st !== 'saved').map(u => `${u.no}  ${u.name}  --  ${stText(u)}${u.url ? '  ' + u.url : ''}`)].join('\r\n'), true);
     await out.flush(true);
   }
   job.safe = job.i; if (job.stopped && job.i < list.length && !job.only) remember(job); else if (!job.only) forget();
 }
 /* an export that was stopped, or cut short by a closed tab, can carry on from the last piece that was saved */
 const MEM = 'lbt-export';
-const sigOf = (kind, U) => { let h = 5381; for (const ch of kind + '\n' + U.list.map(u => u.ident).join('\n')) h = ((h << 5) + h + ch.charCodeAt(0)) | 0; return String(h); };
-const remember = job => { if (job.only) return; try { localStorage.setItem(MEM, JSON.stringify({ sig: job.sig, kind: job.kind, proj: job.proj, i: job.safe, part: job.part, docN: job.docN, seen: [...job.seen], at: now() })); } catch (_) {} };
+const sigOf = (kind, list) => { let h = 5381; for (const ch of kind + '\n' + list.map(u => u.ident).join('\n')) h = ((h << 5) + h + ch.charCodeAt(0)) | 0; return String(h); };
+const remember = job => { if (job.only) return; try { localStorage.setItem(MEM, JSON.stringify({ sig: job.sig, kind: job.kind, proj: job.proj, i: job.safe, part: job.part, docN: job.docN, seen: [...job.seen], opt: job.opt, at: now() })); } catch (_) {} };
 const forget = () => { try { localStorage.removeItem(MEM); } catch (_) {} };
-function resumable(sc, U) { try { const r = JSON.parse(localStorage.getItem(MEM) || 'null'); return r && r.proj === sc.p.id && r.i > 0 && r.i < U.list.length && now() - r.at < 14 * DAY && r.sig === sigOf(r.kind, U) ? r : null; } catch (_) { return null; } }
+function resumable(sc, U) { try { const r = JSON.parse(localStorage.getItem(MEM) || 'null'); if (!r || r.proj !== sc.p.id || !r.opt) return null; const l = plan(sc, U, r.opt).list; return r.i > 0 && r.i < l.length && now() - r.at < 14 * DAY && r.sig === sigOf(r.kind + JSON.stringify(r.opt), l) ? { ...r, total: l.length } : null; } catch (_) { return null; } }
 async function start(kind, from, only) {
   if (busy()) return; const prev = J, sc = only ? prev.sc : scope(), U = only ? prev.U : units(sc);
-  if (!U.list.length && kind !== 'all') { toast('There are no result files in this selection.'); return; }
-  const job = J = { kind, sc, U, only: only || null, total: (only || U.list).length, i: from ? from.i : 0, part: from ? from.part || 0 : only ? prev.part : 0, docN: from ? from.docN || 0 : only ? prev.docN : 0, resumed: !!from, i0: from ? from.i : 0, safe: from ? from.i : 0, seen: new Map((from && from.seen) || []),
-    proj: sc.p.id, url: DB.lab.uploadUrl || '', name: fileSafe(sc.p.name), t0: now(), state: 'run', gap: PACE.min, last: 0, bad: 0, fail: [], saved: [], bytes: 0, cur: 'Getting ready…', sig: sigOf(kind, U) };
+  const opt = only ? prev.opt : from ? from.opt : kind === 'all' ? ALLOPT : snapOpt(), pn = only ? prev.plan : plan(sc, U, opt);
+  if (!pn.list.length && kind !== 'all') { toast('Nothing is chosen to export.'); return; }
+  const job = J = { kind, sc, U, opt, plan: pn, list0: pn.list, imgMax: opt.layout === 'single' ? 1800 : Math.max(360, Math.min(1400, Math.round(2200 / Math.max(1, opt.cols)))), only: only || null, total: (only || pn.list).length, i: from ? from.i : 0, part: from ? from.part || 0 : only ? prev.part : 0, docN: from ? from.docN || 0 : only ? prev.docN : 0, resumed: !!from, i0: from ? from.i : 0, safe: from ? from.i : 0, seen: new Map((from && from.seen) || []),
+    proj: sc.p.id, url: DB.lab.uploadUrl || '', name: fileSafe(sc.p.name), t0: now(), state: 'run', gap: PACE.min, last: 0, bad: 0, fail: [], saved: [], bytes: 0, cur: 'Getting ready…', sig: sigOf(kind + JSON.stringify(opt), pn.list) };
   softRender();
   try { await work(job); } catch (err) { if (err !== STOP) { job.error = err.message || String(err); console.error(err); remember(job); } else job.stopped = true; }
   job.state = 'done'; job.took = now() - job.t0; softRender(); drawJob();
@@ -354,7 +425,7 @@ const KIND = { docx: 'Word document of the images', pptx: 'PowerPoint of the ima
 const span = ms => { const s = Math.max(0, Math.round(ms / 1000)); return s < 90 ? s + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1) + ' h'; };
 function jobHTML() {
   const j = J;
-  if (!j) { if (!proj()) return ''; const sc = scope(), r = resumable(sc, units(sc)); return r ? `<div class="card" style="border-color:var(--warn)"><div class="line"><b class="grow">An export (${KIND[r.kind]}) stopped at file ${r.i} of ${units(sc).list.length} on ${e(day(r.at))}.</b><button class="btn sm pri" data-a="exResume">Carry on from there</button><button class="btn sm" data-a="exForget">Forget it</button></div><div class="hint">The pieces already saved in your Downloads folder stay as they are; the rest follows as further parts.</div></div>` : ''; }
+  if (!j) { if (!proj()) return ''; const sc = scope(), r = resumable(sc, units(sc)); return r ? `<div class="card" style="border-color:var(--warn)"><div class="line"><b class="grow">An export (${KIND[r.kind]}) stopped at file ${r.i} of ${r.total} on ${e(day(r.at))}.</b><button class="btn sm pri" data-a="exResume">Carry on from there</button><button class="btn sm" data-a="exForget">Forget it</button></div><div class="hint">The pieces already saved in your Downloads folder stay as they are; the rest follows as further parts.</div></div>` : ''; }
   if (j.quick) return j.state === 'run' ? `<div class="card"><div class="line"><b class="grow">${e(j.cur)}</b></div><div class="bar"><i style="width:100%;opacity:.45"></i></div></div>` : `<div class="card" style="border-color:var(--bad)"><div class="line"><span class="grow"><b>That export did not work.</b> ${e(j.error)}.</span><button class="btn sm" data-a="exClose">Close</button></div></div>`;
   const done = j.i - j.i0, left = j.total - j.i, el = now() - j.t0, eta = done >= 3 ? el / done * left : 0, pct = j.total ? j.i / j.total * 100 : 0;
   if (j.state !== 'done') return `<div class="card" style="border-color:var(--accent)" aria-live="polite"><div class="line"><h2 class="grow">Exporting: ${e(KIND[j.kind])}${j.only ? ' (files tried again)' : ''}</h2>${j.state === 'paused' ? '' : `<button class="btn sm" data-a="exStop" ${j.stop ? 'disabled' : ''}>${j.stop ? 'Stopping…' : 'Stop'}</button>`}</div>
@@ -373,48 +444,90 @@ function jobHTML() {
 function drawJob() { const el = document.getElementById('xjob'); if (el) el.innerHTML = jobHTML(); }
 setInterval(() => { if (busy() && !J.quick && S.tab === 'export') drawJob(); }, 5000);
 
+/* a small picture of what the export will look like, drawn from the choices before anything is fetched */
+function previewHTML(pn, o, shs) {
+  if (!pn.list.length) return '<div class="hint">Nothing is chosen yet: tick at least one kind of file above.</div>';
+  const pic = u => u && u.th ? `<img src="${e(u.th)}" alt="">` : '<i></i>';
+  if (o.layout === 'single') { const u = pn.list[0]; return `<div class="pvs"><div class="pv"><b>${e(u.no + ' · ' + u.name)}</b><div class="pv1">${pic(u)}</div></div></div><div class="sm muted">${pl(pn.list.length, 'slide')} (or pages in Word), one for each file, in this order: ${e(pn.sections.map(q => q.title.toLowerCase() + ' (' + q.items.length + ')').join(', '))}.</div>`; }
+  return `<div class="pvs">${shs.slice(0, 2).map(sh => { const side = sh.rows.some(r => r.side != null);
+    return `<div class="pv"><b>${e(sh.title)}</b><div class="pvg" style="grid-template-columns:${side ? '58px ' : ''}repeat(${sh.cols},minmax(0,1fr));grid-template-rows:${sh.top ? 'auto ' : ''}repeat(${sh.per},minmax(0,1fr))">${sh.top ? (side ? '<span></span>' : '') + sh.top.map(t => `<span class="pvh">${e(t)}</span>`).join('') : ''}${sh.rows.map(r => (side ? `<span class="pvh l">${e(r.side || '')}</span>` : '') + Array.from({ length: sh.cols }, (_, i) => { const c = r.cells[i]; return c ? `<span class="pvc"><span class="pvi">${c.us.map(pic).join('')}</span><em>${e(c.label)}</em></span>` : '<span></span>'; }).join('')).join('')}</div></div>`; }).join('')}</div>
+   <div class="sm muted">${pl(shs.length, 'slide')} of pictures in all${shs.length > 2 ? '; the first two are shown' : ''}. Grey boxes are files the tracker has no small picture of; the real picture is used in the export.</div>`;
+}
+const isOwner = () => S.user === LAB_OWNER;
 V.export = () => {
   if (!proj()) return noProj();
-  const sc = scope(), U = units(sc), p = sc.p, all = projExps(), ss = sc.sessions, off = busy() ? 'disabled' : '', nf = U.list.length, noF = busy() || !nf ? 'disabled' : '', drive = !!DB.lab.uploadUrl;
-  const nRes = ss.reduce((a, s) => a + Object.values(s.res || {}).reduce((b, r) => b + Object.keys(r).length, 0), 0), nDev = ss.reduce((a, s) => a + s.notes.length, 0), pull = U.list.filter(u => u.did).length;
+  const sc = scope(), U = units(sc), p = sc.p; if (BL.proj !== p.id) Object.assign(BL, { proj: p.id, koff: new Set(), goff: new Set() });
+  const o = snapOpt(), pn = plan(sc, U, o), n = pn.list.length, all = projExps(), ss = sc.sessions, off = busy() ? 'disabled' : '', drive = !!DB.lab.uploadUrl, pull = pn.list.filter(u => u.did).length, go = busy() || !n || !U.ok ? 'disabled' : '';
+  const kc = k => U.list.filter(u => u.kind === k).length, groups = [...new Set(p.samples.map(m => m.group || 'No group'))], grid = o.layout !== 'single', shs = grid ? sheets(pn.sections, o) : [];
+  const nRes = ss.reduce((a, q) => a + Object.values(q.res || {}).reduce((b, r) => b + Object.keys(r).length, 0), 0), nDev = ss.reduce((a, q) => a + q.notes.length, 0), narrowed = O.off.size || O.from || O.to;
+  const sets = p.xsets || [], reqs = (p.xreq || []).slice().reverse();
   return `<div class="stack">
-   <div class="card"><h2>Export: ${e(p.name)}</h2>
-    <div class="hint">Take the study's record out of the tracker as files you can keep, hand in or print: the methods exactly as they were performed, the data and images, or everything at once. Choose what to include, then pick an export below.</div>
-    <div class="line"><b class="sm">Experiments</b><button class="lnk sm" data-a="exAllX">${O.off.size ? 'Include all' : 'Include none'}</button></div>
-    <div class="mcs">${all.map(x => `<button class="mc ${O.off.has(x.id) ? '' : 'on'}" data-a="exX" data-x="${x.id}" aria-pressed="${!O.off.has(x.id)}" ${off}>${e(x.name)}</button>`).join('') || '<span class="hint">This study has no experiments yet.</span>'}</div>
-    <div class="rg"><label>From (optional)<input type="date" data-ex="from" value="${e(O.from)}" ${off}></label><label>To (optional)<input type="date" data-ex="to" value="${e(O.to)}" ${off}></label></div>
-    <label class="line sm"><input type="checkbox" data-ex="animals" ${O.animals ? 'checked' : ''} ${off}> Include the photos and files on the animals' profiles</label>
-    <div class="sm"><b>In this selection:</b> ${pl(ss.length, 'bench session')} (${ss.filter(s => s.doneAt).length} finished) · ${pl(ss.reduce((a, s) => a + s.mice.length, 0), 'run')} · ${pl(nDev, 'deviation')} noted · ${pl(nRes, 'typed value')} · ${pl(nf, 'result file')}</div></div>
    <div id="xjob">${jobHTML()}</div>
-   <div class="cols even">
-    <div class="card"><h2>1. Methods, as performed</h2>
-     <div class="hint">The lab book. Every bench session in date order: who did it and when, the protocol revision used, each step as it was carried out with its amounts and settings, the check boxes ticked, every deviation noted, and the values typed in. Ends with the full change history of the protocols used.</div>
-     <div class="line"><button class="btn pri" data-a="exMethods" data-f="docx" ${off}>Word document</button><button class="btn" data-a="exMethods" data-f="xlsx" ${off}>Excel workbook</button></div>
-     <div class="hint">Made at once: nothing has to be fetched from Drive.</div></div>
-    <div class="card"><h2>2. Data and images</h2>
-     <div class="hint">Every result file, once. A file that shows several samples, such as a gel, is one page that lists all of its samples; a file per sample gives a page per sample.</div>
-     <div class="ti sm"><div><b>${pl(nf, 'file')}</b> to export, from ${pl(U.recs, 'link')} in the tracker, showing ${pl(U.samples, 'sample')}.</div>
-      ${U.merged ? `<div>${pl(U.merged, 'link')} ${U.merged === 1 ? 'points' : 'point'} at a file already counted${U.repeat ? ` (${U.repeat} of them the same file added to the same sample twice)` : ''}: no file is exported twice.</div>` : ''}
-      <div>${U.ok ? flag('ok', 'Check passed') + ` all ${U.linkN} sample-to-file links are kept` : flag('bad', 'Check failed') + ' the links do not add up. Do not export; send a screenshot of this to the lab admin.'}</div>
-      ${U.gaps.length ? `<div class="muted">${pl(U.gaps.length, 'finished run')} ${U.gaps.length === 1 ? 'has' : 'have'} no result file; they are listed in the export.</div>` : ''}
-      ${nf - pull ? `<div class="muted">${nf - pull} ${nf - pull === 1 ? 'is a link' : 'are links'} to somewhere outside the study's Drive folder (or a name only). The tracker cannot download those; they are listed with their links.</div>` : ''}
-      ${!drive && pull ? '<div class="err">Uploads from the tracker are not set up, so files cannot be fetched from Drive. The document will list every file with its link instead. An admin can set it up under Lab and access, Google Drive.</div>' : ''}</div>
-     <div class="line"><button class="btn pri" data-a="exData" data-f="docx" ${noF || (U.ok ? '' : 'disabled')}>Word document</button><button class="btn" data-a="exData" data-f="pptx" ${noF || (U.ok ? '' : 'disabled')}>PowerPoint</button><button class="btn" data-a="exData" data-f="zip" ${noF || (U.ok && drive ? '' : 'disabled')}>Original files (zip)</button></div>
-     <div class="hint">${pull ? `About ${span(pull * 2500)} or more for ${pl(pull, 'file')}: they come from Google Drive one at a time, slowly on purpose. ` : ''}In a document, pictures are made smaller so it stays usable (about ${PER_DOC} to a document, then a second part starts). The zip holds the files exactly as they are in Drive.</div></div>
-    <div class="card"><h2>3. Everything</h2>
-     <div class="hint">The whole study in one go: the lab book, a workbook of every table (samples, plan, runs, steps, deviations, results, files, the day plan, monitoring), every original file, the images document, and the complete record as the tracker stores it. Large studies are saved as several zip files of about ${Math.round(VOL / 1e6)} MB.</div>
-     <div class="line"><button class="btn pri" data-a="exData" data-f="all" ${busy() || !U.ok ? 'disabled' : ''}>Export everything (zip)</button><button class="btn" data-a="exTables" ${off}>Only the tables (Excel)</button></div>
-     <div class="hint">Your browser may ask once whether this site may download several files. Say yes, or only the first piece is saved.</div></div>
-   </div></div>`;
+   <div class="card"><h2>Export images and files: ${e(p.name)}</h2>
+    <div class="hint">Three steps: choose what goes in, choose how it is laid out, check the small preview, then export. Nothing is fetched from Google Drive until you press an export button.</div>
+    <div class="xstep"><h3>1. What to include</h3>
+     <div class="mcs">${KINDS.filter(q => kc(q[0])).map(([k, l]) => `<button class="mc ${BL.koff.has(k) ? '' : 'on'}" data-a="exK" data-k="${k}" aria-pressed="${!BL.koff.has(k)}" ${off}>${l} · ${kc(k)}</button>`).join('') || '<span class="hint">This study has no files yet. Add them on the animals\' profiles or as result files on a run.</span>'}</div>
+     ${groups.length > 1 ? `<div class="line sm"><span class="muted">Groups</span><span class="mcs">${groups.map(g => `<button class="mc ${BL.goff.has(g) ? '' : 'on'}" data-a="exG" data-g="${e(g)}" aria-pressed="${!BL.goff.has(g)}" ${off}>${e(g)}</button>`).join('')}</span></div>` : ''}
+     <div class="sm"><b>${pl(n, 'file')} chosen.</b> ${U.ok ? '' : flag('bad', 'Check failed') + ' The links between samples and files do not add up, so exporting is switched off. Send a screenshot of this to the lab admin. '}${n - pull ? `<span class="muted">${n - pull} cannot be fetched (a link outside the study's Drive folder, or a name only) and will be listed instead.</span>` : ''}${!drive && pull ? ' <span class="err">Uploads from the tracker are not set up, so nothing can be fetched from Drive; files will be listed with their links.</span>' : ''}</div></div>
+    <div class="xstep"><h3>2. How to lay it out</h3>
+     <div class="kinds">${Object.entries(LAYS).map(([k, v]) => `<button class="kind ${o.layout === k ? 'on' : ''}" data-a="exLay" data-k="${k}" aria-pressed="${o.layout === k}" ${off}><b>${v[0]}</b><span>${v[1]}</span></button>`).join('')}</div>
+     ${grid ? `<div class="rg"><label>Pictures across<input type="number" min="1" max="12" data-ex="cols" value="${o.cols}" ${off}></label><label>Rows down<input type="number" min="1" max="8" data-ex="rows" value="${o.rows}" ${off}></label><label>Groups<select data-ex="grp" ${off}>${GRPS.map(g => `<option value="${g[0]}" ${o.grp === g[0] ? 'selected' : ''}>${g[1]}</option>`).join('')}</select></label></div>
+      <div class="hint">${o.grp === 'top' ? 'With the group name on top there is one column for each group, so "pictures across" is not used. ' : ''}${o.layout === 'pairs' && !pn.sections.some(q => q.pairs) ? 'Pairs needs both tumour images and background-removed versions ticked in step 1; without them this is a plain grid. ' : ''}Each sample's name is written under its picture. Whatever does not fit on one slide carries on to the next.</div>` : ''}</div>
+    <div class="xstep"><h3>3. Check the preview, then export</h3>
+     ${previewHTML(pn, o, shs)}
+     <div class="line"><button class="btn pri" data-a="exData" data-f="pptx" ${go}>Export as PowerPoint</button><button class="btn" data-a="exData" data-f="docx" ${go}>Export as Word</button><button class="btn" data-a="exData" data-f="zip" ${go || (drive ? '' : 'disabled')}>The original files (zip)</button></div>
+     <div class="hint">${pull ? `About ${span(pull * 2500)} or more for ${pl(pull, 'file')}: they come from Google Drive one at a time, slowly on purpose. ` : ''}The zip holds the chosen files exactly as they are in Drive, without a layout.</div></div>
+    <div class="xstep"><h3>Saved set-ups</h3>
+     ${sets.length ? `<div class="mcs">${sets.map(q => `<span class="mc"><button class="lnk" data-a="exSetUse" data-id="${q.id}" title="${e(optText(q.opt))}" ${off}>${e(q.name)}</button><button class="lnk" data-a="exSetDel" data-id="${q.id}" aria-label="Remove the set-up ${e(q.name)}">×</button></span>`).join('')}</div>` : ''}
+     <div class="line"><input type="text" id="xsName" class="grow" placeholder="Name these choices to use them again, e.g. Tumour sheet by group" aria-label="Name for this set-up"><button class="btn sm" data-a="exSetSave" ${off}>Save this set-up</button></div>
+     <div class="hint">A set-up remembers steps 1 and 2. Everyone in this study can use it, so the same export can be made again the same way.</div></div>
+    <div class="xstep"><h3>None of this fits?</h3>
+     <div class="line"><span class="sm grow">Describe the export you need in your own words. It is emailed to ${e(nameOf(LAB_OWNER))}, who builds it and sends it back here as a set-up you can run.</span><button class="btn" data-a="exReq">Ask for a custom export</button></div>
+     ${reqs.map(r => `<div class="ti sm"><div class="line"><b class="grow">${e(nameOf(r.by))} · ${e(day(r.at))}</b>${flag(r.done ? 'ok' : 'warn', r.done ? 'Built' : 'Waiting')}</div><div style="white-space:pre-wrap">${e(r.text)}</div>
+       ${r.done ? `<div><b>${e(nameOf(r.doneBy || LAB_OWNER))}:</b> ${e(r.reply || 'Built.')}</div>${r.opt ? `<div class="line"><button class="btn sm pri" data-a="exReqUse" data-id="${r.id}" ${off}>Use this set-up</button><span class="muted">${e(optText(r.opt))}</span></div>` : ''}`
+         : isOwner() ? `<div class="line"><input type="text" id="xr${r.id}" class="grow" placeholder="What you built, or how to do it" aria-label="Reply"><button class="btn sm pri" data-a="exReqDone" data-id="${r.id}">Mark as built, with the choices above as its set-up</button></div>` : ''}
+       ${r.by === S.user || isOwner() ? `<div><button class="lnk" data-a="exReqDel" data-id="${r.id}">Remove this request</button></div>` : ''}</div>`).join('')}</div>
+   </div>
+   <div class="card"><h2>Lab book and tables</h2>
+    <div class="hint">The written record, made at once without Google Drive. The lab book has every bench session as it was performed: who and when, the protocol revision, each step, the boxes ticked, every deviation and the values typed in.</div>
+    <div class="line"><button class="btn pri" data-a="exMethods" data-f="docx" ${off}>Lab book (Word)</button><button class="btn" data-a="exMethods" data-f="xlsx" ${off}>Lab book (Excel)</button><button class="btn" data-a="exTables" ${off}>All tables (Excel)</button><button class="btn" data-a="exData" data-f="all" ${busy() || !U.ok ? 'disabled' : ''}>Everything in one zip</button></div>
+    <div class="sm muted">${pl(ss.length, 'bench session')} (${ss.filter(q => q.doneAt).length} finished) · ${pl(ss.reduce((a, q) => a + q.mice.length, 0), 'run')} · ${pl(nDev, 'deviation')} noted · ${pl(nRes, 'typed value')}. "Everything" adds every original file, the tables and the full record, as zip files of about ${Math.round(VOL / 1e6)} MB; your browser may ask once to allow several downloads.</div>
+    <div class="line"><button class="lnk sm" data-a="exMore">${O.more || narrowed ? 'Hide' : 'Narrow by experiment or date'}${narrowed ? ' (narrowed now)' : ''}</button></div>
+    ${O.more || narrowed ? `<div class="mcs">${all.map(x => `<button class="mc ${O.off.has(x.id) ? '' : 'on'}" data-a="exX" data-x="${x.id}" aria-pressed="${!O.off.has(x.id)}" ${off}>${e(x.name)}</button>`).join('')}<button class="lnk sm" data-a="exAllX">${O.off.size ? 'Include all' : 'Include none'}</button></div>
+     <div class="rg"><label>From (optional)<input type="date" data-ex="from" value="${e(O.from)}" ${off}></label><label>To (optional)<input type="date" data-ex="to" value="${e(O.to)}" ${off}></label></div>
+     <div class="hint">This narrows everything on this page, the images above included: only these experiments' runs and files, and only what was done or added between the dates.</div>` : ''}</div></div>`;
 };
+export function xreqHTML() {
+  return `<h2>Ask for a custom export</h2><div class="hint">Say what you want to end up with, as if explaining it to a person: which samples, experiments or files, in what order, how they should sit on the slide or page, and what it is for. The choices you have made in the builder are sent along, so start from the closest one.</div>
+    <label>What you need<textarea id="xrText" rows="7" placeholder="e.g. One slide per group with the tumour photos in a row across the top, the cut-outs in a row below, and the tumour volume graph for that group on the right. For my committee meeting on the 12th."></textarea></label>
+    <div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="exReqSend">Send the request</button></div>`;
+}
 document.addEventListener('change', ev => {
   const el = ev.target, k = el.dataset && el.dataset.ex; if (!k || busy()) return;
-  if (k === 'animals') O.animals = el.checked; else O[k] = el.value; softRender();
+  if (k === 'cols') BL.cols = Math.max(1, Math.min(12, Math.round(+el.value) || 5)); else if (k === 'rows') BL.rows = Math.max(1, Math.min(8, Math.round(+el.value) || 4)); else if (k === 'grp') BL.grp = el.value; else O[k] = el.value;
+  softRender();
 });
 const stampName = (sc, what, ext) => `${fileSafe(sc.p.name)} ${what} ${dayKey(now())}.${ext}`;
 export const exportActions = {
   exX: d => { if (busy()) return false; O.off.has(d.x) ? O.off.delete(d.x) : O.off.add(d.x); },
   exAllX: () => { if (busy()) return false; if (O.off.size) O.off.clear(); else O.off = new Set(projExps().map(x => x.id)); },
+  exMore: () => { if (O.more || O.off.size || O.from || O.to) { O.more = false; O.off.clear(); O.from = ''; O.to = ''; } else O.more = true; },
+  exK: d => { if (busy()) return false; BL.koff.has(d.k) ? BL.koff.delete(d.k) : BL.koff.add(d.k); },
+  exG: d => { if (busy()) return false; BL.goff.has(d.g) ? BL.goff.delete(d.g) : BL.goff.add(d.g); },
+  exLay: d => { if (busy() || !LAYS[d.k]) return false; BL.layout = d.k; },
+  exSetSave: () => { const p = proj(), nm = ($('#xsName') ? $('#xsName').value : '').trim().slice(0, 60); if (!nm) { toast('Give the set-up a name first.'); return false; } p.xsets = [...(p.xsets || []).filter(q => q.name !== nm), { id: nid(), name: nm, opt: snapOpt(), by: S.user, at: now() }]; toast('Saved. Anyone in this study can use "' + nm + '".'); },
+  exSetUse: d => { const q = (proj().xsets || []).find(z => z.id === d.id); if (!q || busy()) return false; useOpt(q.opt); toast('Set-up "' + q.name + '" is in the builder.'); },
+  exSetDel: d => { const p = proj(); p.xsets = (p.xsets || []).filter(q => q.id !== d.id); },
+  exReq: () => { S.modal = { type: 'xreq' }; },
+  exReqSend: () => {
+    const t = ($('#xrText') ? $('#xrText').value : '').trim(), p = proj(); if (t.length < 15) { const el = $('#mErr'); if (el) el.textContent = 'Describe what you need in a sentence or two.'; return false; }
+    p.xreq = [...(p.xreq || []), { id: nid(), by: S.user, at: now(), text: t.slice(0, 3000), from: snapOpt() }];
+    notice(LAB_OWNER, `${nameOf(S.user)} asked for a custom export in ${p.name}: ${t.slice(0, 1200)} (Their builder choices at the time: ${optText(snapOpt())}. It is listed on the Export tab of that study.)`);
+    S.modal = null; toast(S.user === LAB_OWNER ? 'Request saved on the Export tab.' : 'Sent to ' + nameOf(LAB_OWNER) + '. It stays listed on this tab until it is built.');
+  },
+  exReqDone: d => { const p = proj(), r = (p.xreq || []).find(q => q.id === d.id); if (!r || !isOwner()) return false; r.done = now(); r.doneBy = S.user; r.reply = ($('#xr' + r.id) ? $('#xr' + r.id).value : '').trim(); r.opt = snapOpt(); notice(r.by, `Your custom export request in ${p.name} has been built${r.reply ? ': ' + r.reply : '.'} Open the Export tab and press "Use this set-up".`); toast('Marked as built. ' + nameOf(r.by) + ' has been told.'); },
+  exReqUse: d => { const r = (proj().xreq || []).find(q => q.id === d.id); if (!r || !r.opt || busy()) return false; useOpt(r.opt); toast('That set-up is in the builder. Check the preview, then export.'); },
+  exReqDel: d => { const p = proj(); p.xreq = (p.xreq || []).filter(q => q.id !== d.id); },
   exMethods: d => { const sc = scope(), U = units(sc); quick('Writing the lab book…', async () => saveBlob(d.f === 'xlsx' ? await xlsxBlob(tables(sc, U, false)) : await docxBlob({ title: `${sc.p.name}: lab book`, by: who(S.user), foot: `${sc.p.name} · lab book · exported ${day(now())}` }, methodBlocks(sc, U)), stampName(sc, 'lab book (methods)', d.f))); return false; },
   exTables: () => { const sc = scope(), U = units(sc); quick('Writing the tables…', async () => saveBlob(await xlsxBlob(tables(sc, U, true)), stampName(sc, 'data tables', 'xlsx'))); return false; },
   exData: d => { start(d.f); return false; },

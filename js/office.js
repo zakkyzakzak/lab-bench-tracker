@@ -62,11 +62,12 @@ export async function xlsxBlob(sheets) {
 /* blocks, in order:
      { h: 1 | 2 | 3, t, brk }            a heading (brk: start it on a new page)
      { p: text or [run], sm, c }         a paragraph; a run is text or { t, b, i, c, url }
-     { table: { head: [text], rows: [[cell]], w: [percent per column] } }   a cell is text, [run], or { lines: [text] }
+     { table: { head: [text], rows: [[cell]], w: [percent per column], nohead } }   a cell is text, [run], { lines: [text] },
+                                         or { imgs: [{ data, w, h } or null], lines: [text] } for pictures with a caption
      { img: { data: Uint8Array (JPEG), w, h } }   an image, already sized in pixels
      { brk: true }                       a page break */
 export async function docxBlob(meta, blocks) {
-  const D = await lib('docx'), { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ImageRun, ExternalHyperlink, PageBreak, AlignmentType, Footer, PageNumber, ShadingType } = D;
+  const D = await lib('docx'), { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ImageRun, ExternalHyperlink, PageBreak, AlignmentType, Footer, PageNumber, ShadingType, PageOrientation, VerticalAlign } = D;
   const H = { 1: HeadingLevel.HEADING_1, 2: HeadingLevel.HEADING_2, 3: HeadingLevel.HEADING_3 };
   const runs = (v, o = {}) => (Array.isArray(v) ? v : [v]).filter(r => r != null && r !== '').map(r => {
     const q = typeof r === 'object' ? r : { t: r }, tr = x => new TextRun({ text: clean(q.t), bold: q.b || o.b, italics: q.i, color: q.c || o.c, size: o.size, ...x });
@@ -79,8 +80,10 @@ export async function docxBlob(meta, blocks) {
     else if (b.table) {
       const { head, rows, w } = b.table, n = head.length, pc = i => ({ size: (w && w[i]) || Math.floor(100 / n), type: WidthType.PERCENTAGE });
       const mk = (cells, hd) => new TableRow({ tableHeader: hd, cantSplit: false, children: cells.slice(0, n).concat(Array(Math.max(0, n - cells.length)).fill('')).map((c, i) => new TableCell({ width: pc(i), margins: { top: 40, bottom: 40, left: 80, right: 80 }, shading: hd ? { type: ShadingType.CLEAR, color: 'auto', fill: 'E8EEEE' } : undefined,
-        children: (c && c.lines ? (c.lines.length ? c.lines : ['']) : [c]).map(line => para(line, { size: 18, b: hd, tight: true })) })) });
-      kids.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [mk(head, true), ...rows.map(r => mk(r, false))] }), para('', { tight: true }));
+        verticalAlign: c && c.imgs ? VerticalAlign.CENTER : undefined,
+        children: c && c.imgs ? [...(c.imgs.some(Boolean) ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 30 }, children: c.imgs.filter(Boolean).flatMap((im, j) => [...(j ? [new TextRun({ text: ' ' })] : []), new ImageRun({ type: 'jpg', data: im.data, transformation: { width: im.w, height: im.h } })]) })] : []), ...(c.lines || []).map(line => para(line, { size: c.size || 16, tight: true, center: true, b: c.b }))]
+          : (c && c.lines ? (c.lines.length ? c.lines : ['']) : [c]).map(line => para(line, { size: 18, b: hd || (c && c.b), tight: true })) })) });
+      kids.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [...(b.table.nohead ? [] : [mk(head, true)]), ...rows.map(r => mk(r, false))] }), para('', { tight: true }));
     }
     else if (b.img) kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 110 }, children: [new ImageRun({ type: 'jpg', data: b.img.data, transformation: { width: b.img.w, height: b.img.h } })] }));
     else if (b.brk) kids.push(new Paragraph({ children: [new PageBreak()] }));
@@ -89,7 +92,7 @@ export async function docxBlob(meta, blocks) {
   const doc = new Document({
     creator: clean(meta.by || 'Lab Bench Tracker'), title: clean(meta.title), description: 'Exported from Lab Bench Tracker',
     styles: { default: { document: { run: { font: 'Calibri', size: 21 } } } },
-    sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1000, right: 1000 } } },
+    sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1000, right: 1000 }, ...(meta.landscape ? { size: { orientation: PageOrientation.LANDSCAPE } } : {}) } },
       footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: clean(meta.foot || meta.title) + '   ·   page ', size: 16, color: '777777' }), new TextRun({ children: [PageNumber.CURRENT], size: 16, color: '777777' })] })] }) },
       children: kids }],
   });
@@ -97,9 +100,13 @@ export async function docxBlob(meta, blocks) {
 }
 /* the page is A4 with narrow margins: this is the room an image has, in pixels at 96 to the inch */
 export const DOC_BOX = [650, 720];
+/* the same for a page turned on its side (meta.landscape), used for sheets of many pictures */
+export const DOC_WIDE = [985, 540];
 
 /* ---------------- PowerPoint ---------------- */
-/* slides: [{ title, sub, lines: [text], img: { data: Uint8Array (JPEG), w, h }, notes }] on a 13.33 x 7.5 inch slide */
+/* slides: [{ title, sub, lines: [text], img: { data: Uint8Array (JPEG), w, h }, notes }] on a 13.33 x 7.5 inch slide.
+   A slide can instead hold a sheet of pictures: sheet: { cols, per, top: [text] or null, rows: [{ side: text or null, cells: [{ imgs: [img or null], label } or null] }] }
+   where per is the number of rows a full slide holds, top the headings over the columns and side the heading beside a row. */
 const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
 export async function pptxBlob(meta, slides) {
   const P = await lib('pptx'), pp = new P(); pp.layout = 'LAYOUT_WIDE'; pp.title = clean(meta.title); pp.author = clean(meta.by || ''); pp.company = 'Lab Bench Tracker';
@@ -107,7 +114,20 @@ export async function pptxBlob(meta, slides) {
     const sl = pp.addSlide(); let y = 0.3;
     sl.addText(clean(s.title), { x: 0.4, y, w: 12.5, h: 0.6, fontSize: s.big ? 28 : 20, bold: true, color: '14383B', fontFace: 'Calibri', fit: 'shrink' }); y += 0.65;
     if (s.sub) { const h = Math.min(1.5, 0.3 + 0.2 * Math.ceil(clean(s.sub).length / 150)); sl.addText(clean(s.sub), { x: 0.4, y, w: 12.5, h, fontSize: 11, color: '555555', fontFace: 'Calibri', valign: 'top', fit: 'shrink' }); y += h + 0.1; }
-    if (s.img) { const bw = 12.5, bh = 7.3 - y, k = Math.min(bw / s.img.w, bh / s.img.h), w = s.img.w * k, h = s.img.h * k; sl.addImage({ data: 'image/jpeg;base64,' + b64(s.img.data), x: 0.4 + (bw - w) / 2, y, w, h }); }
+    if (s.sheet) {
+      const sh = s.sheet, side = sh.rows.some(r => r.side != null) ? 1.5 : 0, topH = sh.top ? 0.38 : 0, X0 = 0.4 + side, Y0 = y + topH, cw = (12.53 - side) / sh.cols, ch = (7.3 - Y0) / sh.per, lab = Math.min(0.3, ch * 0.2);
+      const txt = (t, o) => sl.addText(clean(t), { fontFace: 'Calibri', color: '222222', align: 'center', valign: 'middle', fit: 'shrink', margin: 0, ...o });
+      (sh.top || []).forEach((t, i) => txt(t, { x: X0 + i * cw, y, w: cw, h: topH, fontSize: 13, bold: true, color: '14383B' }));
+      sh.rows.forEach((r, ri) => {
+        if (r.side) txt(r.side, { x: 0.4, y: Y0 + ri * ch, w: side - 0.12, h: ch - lab, fontSize: 13, bold: true, color: '14383B', align: 'left' });
+        r.cells.forEach((c, ci) => {
+          if (!c) return; const bx = X0 + ci * cw + 0.05, by = Y0 + ri * ch + 0.03, bw = cw - 0.1, bh = ch - lab - 0.06, k = c.imgs.length || 1;
+          c.imgs.forEach((im, j) => { const sx = bx + j * bw / k, sw = bw / k - (k > 1 ? 0.04 : 0); if (!im) { txt('not shown', { x: sx, y: by, w: sw, h: bh, fontSize: 8, color: '999999' }); return; } const q = Math.min(sw / im.w, bh / im.h), w = im.w * q, h = im.h * q; sl.addImage({ data: 'image/jpeg;base64,' + b64(im.data), x: sx + (sw - w) / 2, y: by + (bh - h) / 2, w, h }); });
+          txt(c.label, { x: bx, y: by + bh + 0.02, w: bw, h: lab, fontSize: Math.max(7, Math.min(11, Math.round(cw * 6))) });
+        });
+      });
+    }
+    else if (s.img) { const bw = 12.5, bh = 7.3 - y, k = Math.min(bw / s.img.w, bh / s.img.h), w = s.img.w * k, h = s.img.h * k; sl.addImage({ data: 'image/jpeg;base64,' + b64(s.img.data), x: 0.4 + (bw - w) / 2, y, w, h }); }
     else if (s.lines && s.lines.length) sl.addText(s.lines.map(clean).join('\n'), { x: 0.4, y, w: 12.5, h: 7.2 - y, fontSize: 13, color: '222222', fontFace: 'Calibri', valign: 'top', fit: 'shrink' });
     if (s.notes) sl.addNotes(clean(s.notes));
   }

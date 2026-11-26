@@ -30,10 +30,14 @@ its files, for example in Google Drive.
 - **Targets**: planned day by day over the next two weeks, by exact sample; each week is sent to the
   supervisor as its own target and tracked against its days, with a time estimate that learns from
   finished sessions. A missed week must be explained before carrying on.
-- **Export**: the study's record as files, in place of a paper lab book: the methods as performed
-  (Word or Excel), the result files and images (Word, PowerPoint, or the originals in a zip), or
-  everything at once. A file that shows several samples, such as a gel, is exported once and lists
-  its samples. Files are fetched from Drive one at a time, slowly, and a stopped export can carry on.
+- **Export**: the study's record as files, in place of a paper lab book. Images and files are exported with a
+  three-step builder: what to include (by kind of file and by group), how to lay it out (one per slide, a grid
+  of many per slide, or tumour photo beside its cut-out, with groups at the side, on top or a slide each), then a
+  preview before anything is fetched. Out as PowerPoint, Word or the original files in a zip. Set-ups can be
+  saved for the study, and a custom export can be asked for in words (it reaches the lab owner as a notice).
+  The lab book (methods as performed) and the tables come out as Word or Excel, or everything in one zip.
+  A file that shows several samples is exported once. Files are fetched from Drive one at a time, slowly, and a
+  stopped export can carry on.
 - **Kinds of file on an animal's profile**: adding a file starts by saying what it is. A tumour image can have
   its background removed; a graph is tagged with groups, stored once in a Graphs folder and shown on every
   animal in those groups; a gel image is tagged with the samples on it and linked to its experiment for each.
