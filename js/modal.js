@@ -7,7 +7,7 @@ import { P, X, cur, feeds, importHTML, inProj, isLeaf, lacking, leaves, names, n
 import { fHas, inbox, key, proj, projExps, runOf, sess } from './runs.js';
 import { resTable } from './study.js';
 import { upBtn } from './animals.js';
-import { anDataHTML } from './photos.js';
+import { anDataHTML, sureFoot } from './photos.js';
 import { BIO_URL } from './lab.js';
 
 /* ---------------- modal ---------------- */
@@ -66,7 +66,7 @@ export function modalHTML() {
   if (m.type === 'anEnd') h = `<h2>End of ${e(m.an)}</h2><div class="rg"><label>Date<input type="date" id="aeDay" value="${S.monDay || dayKey(now())}" max="${dayKey(now())}"></label><label>Reason<select id="aeWhy"><option>End of study</option><option>Humane endpoint</option><option>Found dead</option><option>Other</option></select></label></div><label>Note (optional)<input type="text" id="aeNote" placeholder="e.g. tumour over the size limit"></label>
      <div class="hint">The animal moves to the bottom of the visit list and is left out of dose sheets after this date. Its samples and records are not affected.</div><div class="foot"><span class="err" id="mErr"></span><button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="anEndSave">Mark as ended</button></div>`;
   if (m.type === 'sure') h = `<h2>Are you sure?</h2><div class="todo"><span><b>${e(m.q[0])}</b>${m.q[1] ? '<br>' + e(m.q[1]) : ''}</span></div>
-     <div class="foot"><button class="btn" data-a="sureNo">Cancel</button><button class="btn pri" data-a="sureYes">${e(m.q[2])}</button></div>`;
+     ${sureFoot(m, e(m.q[2]))}`;
   if (m.type === 'delProto') {
     const p = P(S.selProto), xs = DB.exps.filter(x => x.proto === p.id), ns = DB.sessions.filter(q => q.proto === p.id).length, lead = feeds(p);
     h = `<h2>Delete ${e(p.name)}?</h2>

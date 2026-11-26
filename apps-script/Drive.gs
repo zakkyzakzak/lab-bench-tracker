@@ -203,6 +203,14 @@ function doPost(e) {
     const proj = { id: String(q.project || ''), data: obj_((fs_('get', '/projects/' + encodeURIComponent(String(q.project || ''))) || {}).fields) };
     const isSup = (lab.supervisors || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) >= 0;
     if (!isSup && (proj.data.members || []).map(function (x) { return String(x).toLowerCase(); }).indexOf(who) < 0) throw new Error('you are not in this study');
+    if (q.action === 'trash') {                 // put a file in the bin (recoverable there for about 30 days); only files inside this study's folder
+      const f = DriveApp.getFileById(String(q.id || '')), top = folder_(proj).folder.getId(); let ok = false, ps = f.getParents(), hop = 0;
+      while (ps.hasNext() && hop++ < 8) { const p = ps.next(); if (p.getId() === top) { ok = true; break; } ps = p.getParents(); }
+      if (!ok) throw new Error('that file is not in this study\'s folder, so the tracker will not delete it');
+      const nm = f.getName(); f.setTrashed(true);
+      try { sheet_().appendRow(['drive', cell_(who), cell_('Deleted ' + nm + ' (' + proj.data.name + ')'), '', new Date(), 'sent', '', '', 1]); } catch (err) {}
+      return json_({ ok: true, name: nm });
+    }
     if (q.action === 'fetch') {                 // hand a stored photo back to the tracker (for the background remover); only files inside this study's folder
       const f = DriveApp.getFileById(String(q.id || '')), top = folder_(proj).folder.getId(); let ok = false, ps = f.getParents(), hop = 0;
       while (ps.hasNext() && hop++ < 8) { const p = ps.next(); if (p.getId() === top) { ok = true; break; } ps = p.getParents(); }

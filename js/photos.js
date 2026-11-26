@@ -173,7 +173,40 @@ export function anDataHTML(m) {
     <div class="foot"><button class="btn" data-a="close">Close</button></div>`;
 }
 
+/* ---------------- deleting the file itself from Google Drive, not just its link ---------------- */
+const driveId = f => (f && (f.id && !/^i[a-z0-9]{12}$/.test(f.id) ? f.id : (/\/d\/([\w-]{10,})/.exec(f.url || '') || [])[1])) || '';
+/* the file a "remove link" question is about, when it is one the tracker can delete from Drive */
+export function drivePick(m) {
+  if (!m || !canUpload()) return null;
+  if (m.a === 'anFileDel') { const f = ((anRec(S.selAnimal) || {}).files || [])[+m.d.j]; return f && driveId(f) ? { f, id: driveId(f) } : null; }
+  if (m.a === 'fileDel') { const f = DB.files.find(q => q.id === m.d.id); return f && driveId(f) ? { f, id: driveId(f) } : null; }
+  return null;
+}
+const RED = 'style="background:var(--bad);border-color:var(--bad);color:#fff"';
+/* the buttons of an "Are you sure?" window: for a Drive file, Remove link and Cancel on the left and a red Delete on the right */
+export function sureFoot(m, yes) {
+  if (m.red) return `<div class="foot"><button class="btn" data-a="sureNo">Cancel</button><button class="btn" ${RED} data-a="sureYes">${yes}</button></div>`;
+  if (!drivePick(m)) return `<div class="foot"><button class="btn" data-a="sureNo">Cancel</button><button class="btn pri" data-a="sureYes">${yes}</button></div>`;
+  return `<div class="hint">Remove link takes it off this page and leaves the file in Google Drive. Delete also puts the file itself in the Drive bin.</div>
+     <div class="foot" style="justify-content:flex-start"><button class="btn pri" data-a="sureYes">${yes}</button><button class="btn" data-a="sureNo">Cancel</button><span class="sp"></span><button class="btn" ${RED} data-a="drvDel">Delete</button></div>`;
+}
+async function driveTrash(id) {
+  const r = await fetch(DB.lab.uploadUrl, { method: 'POST', body: JSON.stringify({ token: await B.idToken(), action: 'trash', project: S.project, id }) }), j = await r.json();
+  if (!j.ok) throw new Error(/empty/.test(j.error || '') ? 'the Drive script is an older version that cannot delete files. Update Drive.gs and deploy a new version (SETUP.md, section 7)' : (j.error || 'Drive refused'));
+}
+
 export const photoActions = {
+  drvDel: () => { const m = S.modal, p = drivePick(m); if (!p) return false; const kids = m.a === 'anFileDel' ? ((anRec(S.selAnimal) || {}).files || []).filter(q => q.of && q.of === p.f.id).length : 0, n = (p.f.keys || []).length;
+    S.modal = { type: 'sure', red: true, a: 'drvDelDo', d: { src: m.a, j: m.d.j, id: m.d.id, an: S.selAnimal, fid: p.id, name: p.f.name }, back: m.back || null,
+      q: [`Delete ${p.f.name} from Google Drive?`, `The file itself goes to the Drive bin of whoever owns the study folder, and its link is removed here${n > 1 ? ' for all ' + n + ' samples it is linked to' : ''}. It can be restored from the bin for about 30 days, after which it is gone for good.${kids ? ' Its background-removed version is a separate file and is kept.' : ''}`, 'Delete the file'] }; },
+  drvDelDo: d => {
+    toast('Deleting ' + d.name + ' from Google Drive…');
+    driveTrash(d.fid).then(() => {
+      if (d.src === 'anFileDel') { const r = anRec(d.an); if (r) r.files = r.files.filter(q => driveId(q) !== d.fid); } else DB.files = DB.files.filter(q => q.id !== d.id);
+      LOCAL.delete(d.fid); commit(); render(); toast(d.name + ' is in the Drive bin and its link is removed.');
+    }, err => toast('It was not deleted: ' + (err.message || 'no answer from Drive') + '. The link is still here.'));
+    return false;
+  },
   phCut: d => { openCutter(S.selAnimal, +d.j); return false; },
   phNoDrive: () => { toast('Uploads need Google Drive switched on for the lab: Lab and access, Google Drive. Until then, paste a link under "Or add a link".'); return false; },
   anData: d => { S.modal = { type: 'anData', an: d.an }; },
