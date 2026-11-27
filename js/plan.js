@@ -10,9 +10,16 @@ import { PALS, palOf } from './render.js';
 export const clean = t => String(t).replace(/[<>"'&|]/g, '').replace(/\s+/g, ' ').trim();
 export const planCols = () => projExps().flatMap(x => (x.targets && x.targets.length ? x.targets : x.targets ? [] : ['']).map(t => ({ x, t }))).filter(c => !S.planX || c.x.id === S.planX);
 const hasRuns = m => [...IDX.keys()].some(k => k.endsWith('|' + m)) || proj().samples.some(q => q.from === m);   // a passage that others were grown from stays too
+/* what the names added one at a time start with: the study's own choice, else whatever the last sample starts with, else "S" */
+export function namePrefix() {
+  const p = proj(); if (p.pre) return p.pre; const ss = p.samples; if (!ss.length) return 'S';
+  const b = ss[ss.length - 1].id.split(' ')[0], m = b.match(/^(.*?)(\d+)$/); return m ? m[1] : b + '-';
+}
+/* the next free name: the prefix and the next number, as wide as the numbers already in use (S01, S02 ... or P1, P2 ...) */
 export function nextMouse() {
-  const ss = proj().samples, base = q => q.id.split(' ')[0]; if (!ss.length) return 'M01'; const m = base(ss[ss.length - 1]).match(/^(.*?)(\d+)$/); if (!m) return base(ss[ss.length - 1]) + '-2';
-  const all = new Set(DB.projects.flatMap(p => p.samples.map(base))); let mx = 0; ss.forEach(q => { const k = base(q).match(/^(.*?)(\d+)$/); if (k && k[1] === m[1]) mx = Math.max(mx, +k[2]); }); let n = mx + 1, id; do { id = m[1] + String(n++).padStart(m[2].length, '0'); } while (all.has(id)); return id;
+  const ss = proj().samples, base = q => q.id.split(' ')[0], pre = namePrefix(), all = new Set(DB.projects.flatMap(p => p.samples.map(base)));
+  let mx = 0, width = 0; ss.forEach(q => { const b = base(q); if (!b.startsWith(pre)) return; const k = b.slice(pre.length); if (/^\d+$/.test(k)) { mx = Math.max(mx, +k); width = Math.max(width, k.length); } });
+  let n = mx + 1, id; do { id = pre + String(n++).padStart(width || 2, '0'); } while (all.has(id)); return id;
 }
 export const pTypes = () => proj().types || [];
 /* filters for the grid in Study plan: by sample type (the part of the name after the animal or donor), by group, and by text */
@@ -31,19 +38,21 @@ V.plan = () => {
   <div class="cols">
    <div class="card"><h2>1. Samples <span class="muted sm">${p.samples.length} held</span></h2>
     ${p.lin ? '<div class="todo sm"><span>This study grows cultures. Names added here become <b>founder samples</b>; their passages are added under Lineage as you make them, and each one then appears in the grid below.</span><button class="btn sm" data-a="tab" data-k="lineage">Open Lineage</button></div>' : ''}
-    <label class="sm" for="smNames">Names, one per line or separated by commas<textarea id="smNames" rows="3" placeholder="M01, M02, M03"></textarea></label>
-    <div class="rg"><label>One of each for these tissues (optional)<input type="text" id="smParts" placeholder="tumour, serum, kidney, brain"></label><label>Group (optional)<input type="text" id="smGroup" placeholder="e.g. treated"></label></div>
+    <label class="sm" for="smNames">Names, one per line or separated by commas<textarea id="smNames" rows="3" placeholder="Any names you like, for example: M01, M02, M03   or   Patient 7   or   HeLa-A, HeLa-B   or   Plate 1"></textarea></label>
+    <div class="rg"><label>One of each for these parts (optional)<input type="text" id="smParts" placeholder="e.g. tumour, serum   or   RNA, protein"></label><label>Group (optional)<input type="text" id="smGroup" placeholder="e.g. treated"></label></div>
     <div class="line"><button class="btn" data-a="smAdd">Add samples</button><span class="err" id="smErr"></span></div>
-    <div class="hint">With tissues filled in, M01 becomes M01 tumour, M01 serum and so on. A sample can sit here with nothing planned on it, so you still have a record that you hold it.</div>
+    <div class="hint">A name can be whatever the sample comes from: an animal, a patient, a cell line, a plate. With parts filled in, each name gets one sample per part, so M01 becomes M01 tumour, M01 serum and so on. A sample can sit here with nothing planned on it, so you still have a record that you hold it.</div>
     <details ${S.smOpen ? 'open' : ''}><summary class="sm">Show all ${p.samples.length} samples</summary><div class="mcs" style="margin-top:8px">${p.samples.map(m => `<span class="mc">${e(m.id)}${hasRuns(m.id) ? '' : `<button class="lnk" data-a="smDel" data-m="${e(m.id)}" aria-label="Remove ${e(m.id)}">×</button>`}</span>`).join('')}</div></details>
-    <div class="ti" ${p.lin ? 'hidden' : ''}><h3>Or add one mouse at a time</h3>
-     <div class="sm"><b>Sample types</b> <span class="muted">click all that this mouse has; they stay selected for the next mouse</span></div>
-     <div class="mcs">${pTypes().map(t => `<button class="mc ${S.addT.has(t) ? 'on' : ''}" data-a="mtT" data-t="${e(t)}" aria-pressed="${S.addT.has(t)}">${e(t)}</button>`).join('') || '<span class="hint">No sample types yet. Add them below, or leave empty for one sample per mouse.</span>'}</div>
-     <div class="line"><input type="text" id="mtNew" class="grow" placeholder="A sample type, e.g. tumour" aria-label="New sample type"><button class="btn sm" data-a="mtTAdd">Add type</button></div>
+    <div class="ti"><h3>Or add them one at a time</h3>
+     <div class="sm"><b>Names start with</b> <span class="muted">any letters you like; the number is added for you</span></div>
+     <div class="line"><input type="text" id="mPre" data-c="mPre" value="${e(namePrefix())}" style="width:130px" aria-label="What the names start with" placeholder="e.g. M, P, HeLa-"><span class="sm muted grow">The next one will be called <b class="mono">${e(nm)}</b>. Use M for mice, P for patients, a cell line's name, or anything else, without spaces.</span></div>
+     <div class="sm"><b>Parts or sample types</b> <span class="muted">click all that this one has; they stay selected for the next one</span></div>
+     <div class="mcs">${pTypes().map(t => `<button class="mc ${S.addT.has(t) ? 'on' : ''}" data-a="mtT" data-t="${e(t)}" aria-pressed="${S.addT.has(t)}">${e(t)}</button>`).join('') || '<span class="hint">None yet. Add them below, or leave empty if each name is a single sample.</span>'}</div>
+     <div class="line"><input type="text" id="mtNew" class="grow" placeholder="A part or sample type, e.g. tumour, RNA, lysate" aria-label="New part or sample type"><button class="btn sm" data-a="mtTAdd">Add type</button></div>
      <div class="sm"><b>Group</b> <span class="muted">stays the same until you change it</span></div>
      <div class="mcs">${[''].concat(pGroups()).map(g => `<button class="mc ${S.addG === g ? 'on' : ''}" data-a="mtG" data-g="${e(g)}" aria-pressed="${S.addG === g}">${e(g || 'No group')}</button>`).join('')}</div>
      <div class="line"><input type="text" id="mgNew" class="grow" placeholder="Another group" aria-label="New group"><button class="btn sm" data-a="mtGAdd">Add group</button></div>
-     <div class="line"><button class="btn pri" data-a="mAdd">+ Add mouse ${e(nm)}</button><span class="sm muted grow">Adds ${selT.length ? selT.map(t => e(nm + ' ' + t)).join(', ') : e(nm) + ' as one sample'}${S.addG ? ' to ' + e(S.addG) : ''}</span></div></div></div>
+     <div class="line"><button class="btn pri" data-a="mAdd">+ Add ${e(nm)}</button><span class="sm muted grow">Adds ${selT.length ? selT.map(t => e(nm + ' ' + t)).join(', ') : e(nm) + ' as one sample'}${S.addG ? ' to ' + e(S.addG) : ''}</span></div></div></div>
    <div class="card"><h2>2. Experiments <span class="muted sm">${xs.length} in this study</span></h2>
     ${xs.map(x => `<div class="ti"><div class="line"><b class="grow">${e(x.name)}</b><span class="sm muted">${e(P(x.proto).name)}</span>${DB.sessions.some(q => q.exp === x.id) ? '' : `<button class="btn sm" data-a="xDel" data-x="${x.id}">Remove</button>`}</div>
       ${x.targets ? `<div class="mcs">${x.targets.map(t => `<span class="mc">${e(t)}${x.treag && R(x.treag[t]) ? ' · ' + e(R(x.treag[t]).name) : ''}</span>`).join('')}</div>

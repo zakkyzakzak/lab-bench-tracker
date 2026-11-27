@@ -408,6 +408,7 @@ document.addEventListener('change', ev => {
   if (c === 'planType') S.planType = el.value;
   if (c === 'planGroup') S.planGroup = el.value;
   if (c === 'planQ') S.planQ = el.value.trim();
+  if (c === 'mPre') { const v = clean(el.value).replace(/\s+/g, '-').slice(0, 20); if (v) proj().pre = v; else delete proj().pre; }
   if (c === 'dOff') S.dOff = +el.value;
   if (c === 'variant') S.variant = el.value;
   if (c === 'tick') { const s = sess(el.dataset.id); if (s) s.ticks[el.dataset.k] = el.checked; }
