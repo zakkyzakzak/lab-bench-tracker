@@ -58,9 +58,9 @@ addEventListener('beforeunload', ev => { if (uploading()) { ev.preventDefault();
 /* One file chooser that lives outside the page that gets redrawn. A chooser inside it is thrown away when the page
    redraws (for example when an earlier upload finishes), and the file picked in it is then silently lost. */
 let inp = null;
-export function pickFiles(many, cb) {
+export function pickFiles(many, cb, accept) {
   if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.hidden = true; inp.id = 'upPicker'; document.body.append(inp); }
-  inp.multiple = !!many; inp.value = '';
+  inp.multiple = !!many; inp.value = ''; inp.accept = accept || '';       // accept: the kinds of file the chooser offers, e.g. '.pdf,.docx'
   inp.onchange = () => { const fs = [...(inp.files || [])]; inp.value = ''; if (fs.length) cb(fs); };
   inp.click();
 }

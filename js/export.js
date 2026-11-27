@@ -58,7 +58,7 @@ export function units(sc) {
   }
   for (const a of DB.animals) {
     if (a.proj !== sc.p.id) continue;
-    for (const f of a.files || []) { if (!sc.inR(f.at || 0)) continue; const did = f.id || driveId(f.url), id = did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + a.id + '|' + f.name + '|' + f.at, u = unit(id, f, did); u.animals.add(a.id); if (f.of) { u.cut = true; u.of = f.of; } u.kind = u.kind || (f.of ? 'cut' : f.kind && f.kind !== 'tumour' ? 'other' : f.img ? 'tumour' : 'other'); }
+    for (const f of a.files || []) { if (!sc.inR(f.at || 0)) continue; const did = f.id || driveId(f.url), id = did ? 'd:' + did : safeUrl(f.url) ? 'u:' + normUrl(f.url) : 'n:' + a.id + '|' + f.name + '|' + f.at, u = unit(id, f, did); u.animals.add(a.id); if (f.of) { u.cut = true; u.of = f.of; } u.kind = u.kind || (f.of ? 'cut' : f.kind === 'euth' ? 'euth' : f.kind && f.kind !== 'tumour' ? 'other' : f.img ? 'tumour' : 'other'); }
   }
   const list = [...U.values()];
   for (const u of list) { const ls = [...u.links.values()]; u.xi = ls.length ? Math.min(...ls.map(q => xi.get(q.x))) : 1e9; u.x = ls.length ? sc.xs[u.xi] : null; u.tg = ls.length ? ls.filter(q => q.x === u.x.id).map(q => q.t).sort()[0] : ''; u.name = u.names[0] || 'Unnamed file';
@@ -186,7 +186,7 @@ function rawRecord(sc) {
      layout       single (one file per slide), grid (many per slide) or pairs (tumour photo beside its cut-out)
      cols, rows   pictures across and down in a grid
      grp          how groups are shown in a grid: none, side (group name beside its rows), top (a column per group), slide (a slide per group) */
-const KINDS = [['tumour', 'Tumour images'], ['cut', 'Background removed'], ['graph', 'Graphs'], ['gel', 'Gel images'], ['result', 'Result files from bench sessions'], ['other', 'Other files']];
+const KINDS = [['tumour', 'Tumour images'], ['cut', 'Background removed'], ['graph', 'Graphs'], ['gel', 'Gel images'], ['result', 'Result files from bench sessions'], ['euth', 'Euthanasia reports'], ['other', 'Other files']];
 const LAYS = { single: ['One per slide', 'Each file large on its own slide or page, with its samples and details. Best as a record.'], grid: ['Grid', 'Many pictures on one slide, like a table, with the sample name under each. Each kind of file gets its own slides.'], pairs: ['Pairs', 'Each tumour photo beside its background-removed version, several animals to a slide.'] };
 const GRPS = [['side', 'Group name at the side, its pictures in rows beside it'], ['top', 'Group name on top, its pictures in a column below it'], ['slide', 'Each group starts its own slide'], ['none', 'Groups not separated: the group is written under each picture']];
 const FONTS = ['Calibri', 'Arial', 'Helvetica', 'Verdana', 'Times New Roman', 'Georgia', 'Courier New'], LPOS = [['below', 'Below the picture'], ['above', 'Above the picture'], ['left', 'Left of the picture'], ['right', 'Right of the picture']];

@@ -21,10 +21,13 @@ export const canUpload = () => !!(DB.lab && DB.lab.uploadUrl && proj());
      tumour  a photo of this animal, in Animals/<animal>; its background can be removed
      graph   one file for whole groups, stored once in Graphs and shown on every animal of the groups tagged
      gel     a gel image, linked to an experiment for every sample that was on it (the same record a bench session's result file makes)
+     euth    this animal's euthanasia report: a Word, PDF or Excel file, in Animals/<animal>
      other   anything else that belongs to this animal */
 export const FKIND = { tumour: ['Tumour image', 'A photo of this animal\'s tumour. You can remove its background afterwards.'], graph: ['Graph', 'One file for whole groups. It is stored once, in a Graphs folder, and shows on the profile of every animal in the groups you tag.'],
-  gel: ['Gel image', 'An RNA gel, for example. Tag every sample that was on the gel and it is linked to that experiment for each of them.'], other: ['Other file', 'Anything else that belongs to this animal.'] };
+  gel: ['Gel image', 'An RNA gel, for example. Tag every sample that was on the gel and it is linked to that experiment for each of them.'], euth: ['Euthanasia report', 'The report written when this animal was euthanased. A Word, PDF or Excel file.'], other: ['Other file', 'Anything else that belongs to this animal.'] };
 /* photos added before there were kinds are tumour images */
+/* a kind that only takes certain files: the endings allowed, and how to say so */
+const ONLY = { euth: [/.(docx?|pdf|xlsx?)$/i, '.doc,.docx,.pdf,.xls,.xlsx', 'a Word, PDF or Excel file'] };
 export const isTumour = f => !!f.img && !f.of && (!f.kind || f.kind === 'tumour');
 const kindTag = f => f.of ? '' : f.kind && f.kind !== 'tumour' ? FKIND[f.kind] ? FKIND[f.kind][0] : '' : f.img ? 'Tumour image' : '';
 
@@ -253,6 +256,7 @@ export function addFileHTML(m) {
       <div class="hint">The gel is linked to ${e(x ? x.name : 'the experiment')} for every sample ticked, exactly as if it had been added as a result file after the bench session. It shows in each sample's record and is exported once.</div>${nameBox('e.g. RNA gel, plate 2')}`;
   }
   if (m.kind === 'tumour') h += '<div class="hint">Stored in this animal\'s own folder. Choose one photo or several.</div>';
+  if (m.kind === 'euth') h += '<div class="hint">Stored in this animal\'s own folder and marked as its euthanasia report. Word (.doc, .docx), PDF or Excel (.xls, .xlsx) only.</div>';
   if (m.kind === 'other') h += '<div class="hint">Stored in this animal\'s own folder, with no tags.</div>';
   return h + foot(ed ? 'Save tags' : m.kind ? 'Choose the file or files' : 'Choose the file or files', !m.kind);
 }
@@ -290,9 +294,12 @@ export const photoActions = {
     const tags = rec => { if (m.kind === 'graph') { delete rec.groups; delete rec.all; if (m.all) rec.all = true; else rec.groups = [...m.gs]; } else { const ks = m.ms.map(q => key(m.x, m.t, q)); rec.key = ks[0]; if (ks.length > 1) rec.keys = ks; else delete rec.keys; } return rec; };
     if (m.edit) { const f = DB.files.find(q => q.id === m.edit); if (!f) { S.modal = null; return; } tags(f); if (typed) f.name = typed; S.modal = null; toast('Tags saved for ' + f.name + '.'); return; }
     const snap = { ...m, gs: [...m.gs], ms: [...m.ms] }, x = X(m.x);
-    pickFiles(true, fs => {
+    pickFiles(true, fs0 => {
+      const only = ONLY[m.kind], fs = only ? fs0.filter(q => only[0].test(q.name)) : fs0;
+      if (fs.length < fs0.length) toast(`${fs0.length - fs.length === 1 ? fs0.find(q => !only[0].test(q.name)).name + ' was' : (fs0.length - fs.length) + ' files were'} left out: ${FKIND[m.kind][0].toLowerCase()} must be ${only[2]}.`);
+      if (!fs.length) return;
       for (const file of fs) {
-        if (m.kind === 'tumour' || m.kind === 'other') { sendToAnimal(pid, m.an, file, m.kind); continue; }
+        if (m.kind === 'tumour' || m.kind === 'other' || m.kind === 'euth') { sendToAnimal(pid, m.an, file, m.kind); continue; }
         const name = fs.length === 1 && typed ? typed : file.name;
         queueUpload((m.kind === 'graph' ? 'Graph: ' : 'Gel: ') + file.name, pid + '|shared', async () => {
           let th = ''; if (PIC.test(file.type)) { try { th = await thumb(await createImageBitmap(file), 'image/jpeg'); } catch (_) { th = ''; } }
@@ -301,7 +308,7 @@ export const photoActions = {
         });
       }
       if (S.modal === m) S.modal = null; render();
-    });
+    }, ONLY[m.kind] ? ONLY[m.kind][1] : '');
     return false;
   },
   phNoDrive: () => { toast('Uploads need Google Drive switched on for the lab: Lab and access, Google Drive. Until then, paste a link under "Or add a link".'); return false; },
