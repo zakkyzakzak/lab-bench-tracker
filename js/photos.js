@@ -188,7 +188,7 @@ export function anDataHTML(m) {
       const res = s && s.res && s.res[smp.id] ? Object.entries(s.res[smp.id]) : [];
       fs.forEach(f => { if ((f.keys || []).length > 1 && !seen.has(f.id)) { seen.add(f.id); shared.push(f); } });
       rows.push(`<div class="ti"><div class="line sm"><b class="grow">${e(x.name)}${t ? ' ' + e(t) : ''}</b>${s ? flag(s.doneAt ? 'ok' : 'warn', s.doneAt ? 'Done ' + dt(s.doneAt) : 'On the bench') : flag('', 'Not run')}</div>
-        ${res.length ? `<div class="sm">${res.map(([n, v]) => `<span class="mono">${e(n)}: <b>${e(v)}</b></span>`).join(' · ')}</div>` : ''}
+        ${res.length ? `<div class="sm">${res.map(([n, v]) => { const two = (((s.rep || {})[smp.id] || {})[n] || []).filter(q => q != null); return `<span class="mono">${e(n)}: <b>${e(v)}</b>${two.length > 1 ? ` <span class="muted">(average of ${e(two.join(' and '))})</span>` : ''}</span>`; }).join(' · ')}</div>` : ''}
         ${fs.map(f => frow(f, `· ${dt(f.at)}${(f.keys || []).length > 1 ? ' · one file for ' + f.keys.length + ' samples' : ''}`)).join('')}</div>`);
     }
     return rows.length ? `<div class="card"><h3>${e(smp.id)}</h3>${rows.join('')}</div>` : '';

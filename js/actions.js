@@ -34,7 +34,7 @@ export function syncEdit() {
     if (o.type === 'wash') { q.reps = Math.max(1, +g('reps').value || 1); q.each = +g('each').value || 0; q.m = q.reps * q.each; q.w = false; } else { q.m = +g('m').value || 0; q.w = g('w').checked; }
     if (o.type === 'other') q.kind = g('kind').value; return q;
   });
-  S.edit.note = $('#edNote') ? val('edNote') : ''; S.edit.name = val('edName'); S.edit.full = val('edFull'); S.edit.grp = val('edGrp'); S.edit.pnotes = val('edNotes'); S.edit.ethics = val('edEthics'); S.edit.schedN = val('edSchedN'); S.edit.schedD = val('edSchedD'); S.edit.fields = [...document.querySelectorAll('#edFields .pfield')].map(r => ({ n: r.querySelector('[data-f=fn]').value.trim(), u: r.querySelector('[data-f=fu]').value.trim() }));
+  S.edit.note = $('#edNote') ? val('edNote') : ''; S.edit.name = val('edName'); S.edit.full = val('edFull'); S.edit.grp = val('edGrp'); S.edit.pnotes = val('edNotes'); S.edit.ethics = val('edEthics'); S.edit.schedN = val('edSchedN'); S.edit.schedD = val('edSchedD'); S.edit.fields = [...document.querySelectorAll('#edFields .pfield')].map(r => { const o = { n: r.querySelector('[data-f=fn]').value.trim(), u: r.querySelector('[data-f=fu]').value.trim() }; if (r.querySelector('[data-f=fd]').checked) o.dup = true; return o; });
 }
 const mErr = t => { const el = $('#mErr'); if (el) el.textContent = t; return false; };
 export const A = {

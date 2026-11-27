@@ -123,7 +123,8 @@ function mirror_(proj, folder, drive) {
     (d.mice || []).forEach(function (m) {
       runs.push([xn, d.target || '', m, groupOf[m] || '', d.doneAt ? 'Done' : 'On the bench', day_(d.startedAt), day_(d.doneAt), d.by || '', (d.pname || '') + ' ' + (d.label || ''), d.rev || '']);
       const r = (d.res || {})[m] || {};
-      Object.keys(r).sort().forEach(function (f) { res.push([xn, d.target || '', m, groupOf[m] || '', f, r[f], day_(d.doneAt || d.startedAt), d.by || '']); });
+      const two = (d.rep || {})[m] || {};
+      Object.keys(r).sort().forEach(function (f) { const t = two[f] || []; res.push([xn, d.target || '', m, groupOf[m] || '', f, r[f], t[0] == null ? '' : t[0], t[1] == null ? '' : t[1], day_(d.doneAt || d.startedAt), d.by || '']); });
     });
   });
   const plan = [];
@@ -141,7 +142,7 @@ function mirror_(proj, folder, drive) {
   }
   tab_(ss, 'Read me', ['This spreadsheet is a copy of what has been typed into the Lab Bench Tracker for ' + p.name + '. It is rewritten about every ten minutes, so do not edit it here: changes are lost. Add your own tabs or make a copy if you want to work on the numbers.'], [['Last copied', new Date()]]);
   tab_(ss, 'Monitoring', ['Date', 'Animal', 'Group', 'Weight (g)', 'Weight note', 'Length (mm)', 'Width (mm)', 'Height (mm)', 'Volume (mm3)', 'Tumour note', 'Treated', 'Comment'], mon);
-  tab_(ss, 'Results', ['Experiment', 'Round or target', 'Sample', 'Group', 'Value', 'Result', 'Date', 'By'], res);
+  tab_(ss, 'Results', ['Experiment', 'Round or target', 'Sample', 'Group', 'Value', 'Result (average if read twice)', 'Reading 1', 'Reading 2', 'Date', 'By'], res);
   tab_(ss, 'Runs', ['Experiment', 'Round or target', 'Sample', 'Group', 'Status', 'Started', 'Finished', 'By', 'Protocol', 'Revision'], runs);
   tab_(ss, 'Plan', ['Experiment', 'Round or target', 'Sample'], plan);
   tab_(ss, 'Samples', ['Sample', 'Group'], (p.samples || []).map(function (m) { return [m.id, m.group || '']; }));

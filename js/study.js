@@ -90,12 +90,25 @@ export function fitList(F, skip) {
 /* A protocol can name values to type in for each sample (for example A260/280 and yield). They are kept on the bench session. */
 const pFields = pid => ((P(pid) || {}).fields || []).filter(f => f.n);
 const resOf = (s, m, f) => ((s.res || {})[m] || {})[f];
+/* a result read twice: both readings are kept (s.rep), and the result itself (s.res) is their average */
+const repOf = (s, m, f) => (((s.rep || {})[m] || {})[f]) || [];
+const avgOf = a => { const n = a.filter(x => typeof x === 'number' && isFinite(x)); return n.length ? Math.round(n.reduce((p, q) => p + q, 0) / n.length * 10000) / 10000 : null; };
+const avgTxt = (s, m, f) => { const a = repOf(s, m, f), v = avgOf(a), n = a.filter(x => typeof x === 'number'); return v == null ? '' : n.length < 2 ? v + ' (one reading)' : String(v); };
 export function resTable(s, only) {
   const fs = pFields(s.proto); if (!fs.length) return '';
-  return `<div class="stack"><h3>Results to record</h3><div class="scroll"><table class="mx res"><thead><tr><th>Sample</th>${fs.map(f => `<th>${e(f.n)}${f.u ? ' <span class="muted">(' + e(f.u) + ')</span>' : ''}</th>`).join('')}</tr></thead>
-   <tbody>${s.mice.filter(m => !only || m === only).map(m => `<tr><td class="mono">${e(m)}</td>${fs.map(f => `<td><input type="text" inputmode="decimal" data-c="res" data-id="${s.id}" data-m="${e(m)}" data-f="${e(f.n)}" value="${e(resOf(s, m, f.n) ?? '')}" aria-label="${e(f.n + ' for ' + m)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="hint">Saved as you leave each box.</div></div>`;
+  return `<div class="stack"><h3>Results to record</h3><div class="scroll"><table class="mx res"><thead><tr><th>Sample</th>${fs.map(f => `<th>${e(f.n)}${f.u ? ' <span class="muted">(' + e(f.u) + ')</span>' : ''}${f.dup ? '<br><span class="sm muted" style="font-weight:400">reading 1 · reading 2 · average</span>' : ''}</th>`).join('')}</tr></thead>
+   <tbody>${s.mice.filter(m => !only || m === only).map(m => `<tr><td class="mono">${e(m)}</td>${fs.map(f => { const inp = (r, v) => `<input type="text" inputmode="decimal" data-c="res" data-id="${s.id}" data-m="${e(m)}" data-f="${e(f.n)}" ${r == null ? '' : `data-r="${r}" style="width:74px"`} value="${e(v ?? '')}" aria-label="${e(f.n + (r == null ? '' : ', reading ' + (r + 1)) + ' for ' + m)}">`;
+      if (!f.dup) return `<td>${inp(null, resOf(s, m, f.n))}</td>`;
+      const a = repOf(s, m, f.n), one = resOf(s, m, f.n);        // a value typed before "read twice" was switched on counts as the first reading
+      return `<td style="white-space:nowrap">${inp(0, a[0] ?? (a.length ? '' : one))} ${inp(1, a[1])} <b class="avg mono" style="display:inline-block;min-width:74px;text-align:left">${e(a.length ? avgTxt(s, m, f.n) : one ?? '')}</b></td>`; }).join('')}</tr>`).join('')}</tbody></table></div><div class="hint">Saved as you leave each box.${fs.some(f => f.dup) ? ' Where a value is read twice, the average is what the tracker uses everywhere else; both readings are kept.' : ''}</div></div>`;
 }
-export function resChange(el) { const s = sess(el.dataset.id); if (!s) return; s.res = s.res || {}; const r = s.res[el.dataset.m] = s.res[el.dataset.m] || {}, v = el.value.trim(); if (v === '') delete r[el.dataset.f]; else r[el.dataset.f] = isNaN(+v) ? v : +v; if (!Object.keys(r).length) delete s.res[el.dataset.m]; commit(); }
+export function resChange(el) { const s = sess(el.dataset.id); if (!s) return; s.res = s.res || {}; const r = s.res[el.dataset.m] = s.res[el.dataset.m] || {}, v = el.value.trim();
+  if (el.dataset.r != null) {                                    // one of two readings: keep both, store their average as the result
+    const m = el.dataset.m, f = el.dataset.f, td = el.closest('td'), box = [...td.querySelectorAll('input')].map(i => { const t = i.value.trim().replace(',', '.'); return t === '' ? null : isNaN(+t) ? t : +t; });
+    s.rep = s.rep || {}; const rm = s.rep[m] = s.rep[m] || {}; if (box.every(x => x == null)) delete rm[f]; else rm[f] = box; if (!Object.keys(rm).length) delete s.rep[m]; if (!Object.keys(s.rep).length) delete s.rep;
+    const av = avgOf(box); if (av == null) delete r[f]; else r[f] = av; if (!Object.keys(r).length) delete s.res[m];
+    td.querySelector('.avg').textContent = av == null ? '' : box.filter(x => typeof x === 'number').length < 2 ? av + ' (one reading)' : String(av); commit(); return;
+  } if (v === '') delete r[el.dataset.f]; else r[el.dataset.f] = isNaN(+v) ? v : +v; if (!Object.keys(r).length) delete s.res[el.dataset.m]; commit(); }
 export function sessPanel(s) {
   return `<div class="card"><div class="line"><h2 class="grow">${e(X(s.exp).name)} ${e(s.target)}</h2><span class="flag info mono">${e(s.pname)} ${e(s.label)} rev ${s.rev}</span></div>
   <div class="sm muted">${s.mice.length} samples: ${e(s.mice.join(', '))} · started by ${e(users[s.by].name)}.${P(s.proto)?.ethics ? ' Ethics approval: ' + e(P(s.proto).ethics) + '.' : ''} These steps are a copy taken when the session started, so later protocol edits do not change this record.</div>
