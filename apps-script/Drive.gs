@@ -81,8 +81,11 @@ function folder_(proj) {
   if (!folder) { folder = root_().createFolder(safeName_(proj.data.name)); drive = { id: folder.getId(), url: folder.getUrl() }; setDrive_(proj.id, drive); }
   return { folder: folder, drive: drive };
 }
+/** The address of the account this script runs as (the owner of its Drive). Asked of Drive, because asking the session
+ *  needs a permission this script does not have, and fails with "not sufficient to call Session.getEffectiveUser". */
+function me_() { try { return String(DriveApp.getRootFolder().getOwner().getEmail() || '').toLowerCase(); } catch (err) { return ''; } }
 function share_(folder, proj, lab) {
-  const me = Session.getEffectiveUser().getEmail().toLowerCase(), have = {};
+  const me = me_(), have = {};
   folder.getEditors().forEach(function (u) { have[u.getEmail().toLowerCase()] = true; });
   try { have[folder.getOwner().getEmail().toLowerCase()] = true; } catch (err) {}
   (proj.data.members || []).concat(lab.supervisors || []).forEach(function (em) {
@@ -216,7 +219,7 @@ function doPost(e) {
       const lname = safeName_(q.name); if (NO_EXT.test(lname)) throw new Error('that kind of file cannot be stored');
       const lbytes = Utilities.base64Decode(String(q.data || '')); if (!lbytes.length) throw new Error('the file was empty'); if (lbytes.length > MAX_UPLOAD) throw new Error('the file is larger than 32 MB');
       const it0 = root_().getFoldersByName('Whole lab'), top0 = it0.hasNext() ? it0.next() : root_().createFolder('Whole lab'); let ldir = top0;
-      const me = Session.getEffectiveUser().getEmail().toLowerCase(), have = {};       // everyone in the lab may open what is in here
+      const me = me_(), have = {};       // everyone in the lab may open what is in here
       top0.getViewers().concat(top0.getEditors()).forEach(function (u) { have[u.getEmail().toLowerCase()] = true; });
       inLab.forEach(function (em) { if (em && em !== me && !have[em] && WITS.test(em)) { try { top0.addViewer(em); have[em] = true; } catch (err) {} } });
       String(q.path || '').split('/').map(safeName_).filter(function (s) { return s && s !== 'Untitled'; }).slice(0, 2).forEach(function (part) { const it = ldir.getFoldersByName(part); ldir = it.hasNext() ? it.next() : ldir.createFolder(part); });

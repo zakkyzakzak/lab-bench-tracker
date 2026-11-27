@@ -189,12 +189,15 @@ function rawRecord(sc) {
 const KINDS = [['tumour', 'Tumour images'], ['cut', 'Background removed'], ['graph', 'Graphs'], ['gel', 'Gel images'], ['result', 'Result files from bench sessions'], ['other', 'Other files']];
 const LAYS = { single: ['One per slide', 'Each file large on its own slide or page, with its samples and details. Best as a record.'], grid: ['Grid', 'Many pictures on one slide, like a table, with the sample name under each. Each kind of file gets its own slides.'], pairs: ['Pairs', 'Each tumour photo beside its background-removed version, several animals to a slide.'] };
 const GRPS = [['side', 'Group name at the side, its pictures in rows beside it'], ['top', 'Group name on top, its pictures in a column below it'], ['slide', 'Each group starts its own slide'], ['none', 'Groups not separated: the group is written under each picture']];
-const BL = { proj: null, koff: new Set(), goff: new Set(), layout: 'single', cols: 5, rows: 4, grp: 'side' };
-const ALLOPT = { koff: [], goff: [], layout: 'single', cols: 5, rows: 4, grp: 'none' };
-const snapOpt = () => ({ koff: [...BL.koff], goff: [...BL.goff], layout: BL.layout, cols: BL.cols, rows: BL.rows, grp: BL.grp });
-const useOpt = o => { BL.koff = new Set(o.koff || []); BL.goff = new Set(o.goff || []); BL.layout = LAYS[o.layout] ? o.layout : 'single'; BL.cols = Math.max(1, Math.min(12, +o.cols || 5)); BL.rows = Math.max(1, Math.min(8, +o.rows || 4)); BL.grp = GRPS.some(g => g[0] === o.grp) ? o.grp : 'side'; };
+const FONTS = ['Calibri', 'Arial', 'Helvetica', 'Verdana', 'Times New Roman', 'Georgia', 'Courier New'], LPOS = [['below', 'Below the picture'], ['above', 'Above the picture'], ['left', 'Left of the picture'], ['right', 'Right of the picture']];
+const BL = { proj: null, koff: new Set(), goff: new Set(), layout: 'single', cols: 5, rows: 4, grp: 'side', font: 'Calibri', gsz: 13, lsz: 9, lpos: 'below', lines: false };
+const ALLOPT = { koff: [], goff: [], layout: 'single', cols: 5, rows: 4, grp: 'none', font: 'Calibri', gsz: 13, lsz: 9, lpos: 'below', lines: false };
+/* the lettering of a grid, with what is used when a set-up saved earlier does not say */
+const styleOf = o => ({ font: FONTS.includes(o.font) ? o.font : 'Calibri', gsz: Math.max(6, Math.min(40, +o.gsz || 13)), lsz: Math.max(5, Math.min(28, +o.lsz || 9)), lpos: LPOS.some(q => q[0] === o.lpos) ? o.lpos : 'below', lines: !!o.lines });
+const snapOpt = () => ({ koff: [...BL.koff], goff: [...BL.goff], layout: BL.layout, cols: BL.cols, rows: BL.rows, grp: BL.grp, font: BL.font, gsz: BL.gsz, lsz: BL.lsz, lpos: BL.lpos, lines: BL.lines });
+const useOpt = o => { BL.koff = new Set(o.koff || []); BL.goff = new Set(o.goff || []); BL.layout = LAYS[o.layout] ? o.layout : 'single'; BL.cols = Math.max(1, Math.min(12, +o.cols || 5)); BL.rows = Math.max(1, Math.min(8, +o.rows || 4)); BL.grp = GRPS.some(g => g[0] === o.grp) ? o.grp : 'side'; Object.assign(BL, styleOf(o)); };
 const nat = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
-const optText = o => `${LAYS[o.layout][0]}${o.layout === 'single' ? '' : `, ${o.cols} across by ${o.rows} down, ${(GRPS.find(g => g[0] === o.grp) || GRPS[0])[1].toLowerCase()}`}${o.koff.length ? '; without ' + o.koff.map(k => (KINDS.find(q => q[0] === k) || [k, k])[1].toLowerCase()).join(', ') : ''}${o.goff.length ? '; without the groups ' + o.goff.join(', ') : ''}`;
+const optText = o => `${LAYS[o.layout][0]}${o.layout === 'single' ? '' : `, ${o.cols} across by ${o.rows} down, ${(GRPS.find(g => g[0] === o.grp) || GRPS[0])[1].toLowerCase()}, ${styleOf(o).font} with group names at ${styleOf(o).gsz} pt and sample names at ${styleOf(o).lsz} pt ${styleOf(o).lpos === 'below' || styleOf(o).lpos === 'above' ? styleOf(o).lpos : 'to the ' + styleOf(o).lpos + ' of'} the picture, ${styleOf(o).lines ? 'with' : 'no'} grid lines`}${o.koff.length ? '; without ' + o.koff.map(k => (KINDS.find(q => q[0] === k) || [k, k])[1].toLowerCase()).join(', ') : ''}${o.goff.length ? '; without the groups ' + o.goff.join(', ') : ''}`;
 /* what the choices come to: the files in the order they will appear, in sections by kind */
 function plan(sc, U, o) {
   const gOrder = [...new Set(sc.p.samples.map(m => m.group || 'No group'))], gi = g => { const i = gOrder.indexOf(g); return i < 0 ? 1e6 : i; };
@@ -231,12 +234,14 @@ function sheets(sections, o) {
 }
 /* sections again from the files a piece of the export holds, so a long export can be written in parts */
 const sectionsOf = (job, us) => { const set = new Set(us); return job.plan.sections.map(q => ({ ...q, items: q.items.filter(i => set.has(i.u)) })).filter(q => q.items.length); };
-const sheetSlides = (shs, im) => shs.map(sh => ({ title: sh.title, sheet: { cols: sh.cols, per: sh.per, top: sh.top, rows: sh.rows.map(r => ({ side: r.side, cells: r.cells.map(c => c && { label: c.label, imgs: c.us.map(u => { const g = u && im(u); return g ? { data: g.data, w: g.pw, h: g.ph } : null; }) }) })) } }));
-function sheetBlocks(shs, im) {
+const sheetSlides = (shs, im, o) => shs.map(sh => ({ title: sh.title, sheet: { style: styleOf(o), cols: sh.cols, per: sh.per, top: sh.top, rows: sh.rows.map(r => ({ side: r.side, cells: r.cells.map(c => c && { label: c.label, imgs: c.us.map(u => { const g = u && im(u); return g ? { data: g.data, w: g.pw, h: g.ph } : null; }) }) })) } }));
+function sheetBlocks(shs, im, o) {
+  const st = styleOf(o);
   return shs.flatMap(sh => {
     const side = sh.rows.some(r => r.side != null), sw = side ? 13 : 0, cwp = (100 - sw) / sh.cols, bw = DOC_WIDE[0] * cwp / 100 - 18, bh = DOC_WIDE[1] / sh.per - 32;
-    const cellOf = c => { if (!c) return ''; const k = c.us.length; return { imgs: c.us.map(u => { const g = u && im(u); return g ? fitBox(g, [bw / k - (k > 1 ? 4 : 0), bh]) : null; }), lines: [c.label + (c.us.some(u => u && im(u)) ? '' : ' (not shown)')] }; };
-    return [{ h: 2, t: sh.title, brk: true }, { table: { nohead: !sh.top, head: [...(side ? [''] : []), ...(sh.top || Array(sh.cols).fill(''))], w: [...(side ? [sw] : []), ...Array(sh.cols).fill(Math.floor(cwp))], rows: sh.rows.map(r => [...(side ? [{ lines: [r.side || ''], b: true }] : []), ...Array.from({ length: sh.cols }, (_, i) => cellOf(r.cells[i]))]) } }];
+    const room = c => st.lpos === 'left' || st.lpos === 'right' ? Math.min(bw * 0.5, c.label.length * st.lsz * 0.85 + 14) : 0;   // a name beside the picture needs its own width, or Word drops it to the next line
+    const cellOf = c => { if (!c) return ''; const k = c.us.length; return { imgs: c.us.map(u => { const g = u && im(u); return g ? fitBox(g, [(bw - room(c)) / k - (k > 1 ? 4 : 0), bh]) : null; }), lines: [c.label + (c.us.some(u => u && im(u)) ? '' : ' (not shown)')], size: st.lsz * 2, font: st.font, pos: st.lpos }; };
+    return [{ h: 2, t: sh.title, brk: true }, { table: { lines: st.lines, font: st.font, hsize: st.gsz * 2, nohead: !sh.top, head: [...(side ? [''] : []), ...(sh.top || Array(sh.cols).fill(''))], w: [...(side ? [sw] : []), ...Array(sh.cols).fill(Math.floor(cwp))], rows: sh.rows.map(r => [...(side ? [{ lines: [r.side || ''], b: true, size: st.gsz * 2, font: st.font }] : []), ...Array.from({ length: sh.cols }, (_, i) => cellOf(r.cells[i]))]) } }];
   });
 }
 
@@ -374,8 +379,8 @@ async function work(job) {
     const first = job.docN === 1 && !job.only && !job.resumed, nm = `${job.name} result files${job.only ? ' (files tried again)' : ''}${last && job.docN === 1 ? '' : ' part ' + job.docN}${orig ? '' : ' ' + stamp}.${doc}`;
     job.cur = 'Writing ' + nm + '…'; drawJob(); let blob;
     const shs = o.layout === 'single' ? null : sheets(sectionsOf(job, pages.map(q => q.u)), o), im = u => got.get(u) || null; pages.forEach(q => got.set(q.u, q.img));
-    if (doc === 'docx') blob = await docxBlob(meta, [...(first ? frontBlocks(sc, U, job.list0, kind === 'all', o) : head(sc, 'Result files and images, part ' + job.docN)), ...(shs ? sheetBlocks(shs, im) : pages.flatMap(q => unitBlocks(q.u, q.img))), ...(last ? endBlocks(job, rep) : [])]);
-    else blob = await pptxBlob(meta, [...(first ? [{ title: sc.p.name, big: true, sub: 'Result files and images', lines: [`Exported ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, '', `${pl(job.list0.length, 'file')}. Set-up: ${optText(o)}.`, '', shs ? 'Every file appears once. The name under each picture is the animal or sample it shows.' : 'Every file is one slide, however many samples it shows. The samples are listed under the title and in the notes.'] }] : []), ...(shs ? sheetSlides(shs, im) : pages.map(q => unitSlide(q.u, q.img))),
+    if (doc === 'docx') blob = await docxBlob(meta, [...(first ? frontBlocks(sc, U, job.list0, kind === 'all', o) : head(sc, 'Result files and images, part ' + job.docN)), ...(shs ? sheetBlocks(shs, im, o) : pages.flatMap(q => unitBlocks(q.u, q.img))), ...(last ? endBlocks(job, rep) : [])]);
+    else blob = await pptxBlob(meta, [...(first ? [{ title: sc.p.name, big: true, sub: 'Result files and images', lines: [`Exported ${dtm(now())} by ${who(S.user)}. Covers ${sc.what}.`, '', `${pl(job.list0.length, 'file')}. Set-up: ${optText(o)}.`, '', shs ? 'Every file appears once. The name under each picture is the animal or sample it shows.' : 'Every file is one slide, however many samples it shows. The samples are listed under the title and in the notes.'] }] : []), ...(shs ? sheetSlides(shs, im, o) : pages.map(q => unitSlide(q.u, q.img))),
       ...(last ? (r => { const o = [{ title: 'Export report', lines: r }]; const odd = rep.filter(u => u.st !== 'shown'); for (let i = 0; i < odd.length; i += 14) o.push({ title: 'Not shown as a picture' + (odd.length > 14 ? ` (${i / 14 + 1})` : ''), lines: odd.slice(i, i + 14).map(u => `${u.no} ${u.name}: ${stText(u)}`) }); return o; })(reportLines(job, rep)) : [])]);
     await out.add(nm, blob, true); pages = []; got.clear();
   };
@@ -449,8 +454,9 @@ function previewHTML(pn, o, shs) {
   if (!pn.list.length) return '<div class="hint">Nothing is chosen yet: tick at least one kind of file above.</div>';
   const pic = u => u && u.th ? `<img src="${e(u.th)}" alt="">` : '<i></i>';
   if (o.layout === 'single') { const u = pn.list[0]; return `<div class="pvs"><div class="pv"><b>${e(u.no + ' · ' + u.name)}</b><div class="pv1">${pic(u)}</div></div></div><div class="sm muted">${pl(pn.list.length, 'slide')} (or pages in Word), one for each file, in this order: ${e(pn.sections.map(q => q.title.toLowerCase() + ' (' + q.items.length + ')').join(', '))}.</div>`; }
+  const st = styleOf(o), pt = n => `font-size:calc(${n} * 100cqw / 960)`, sideW = Math.max(1.5, Math.min(3.2, st.gsz * 0.115)) / 12.53 * 100;
   return `<div class="pvs">${shs.slice(0, 2).map(sh => { const side = sh.rows.some(r => r.side != null);
-    return `<div class="pv"><b>${e(sh.title)}</b><div class="pvg" style="grid-template-columns:${side ? '58px ' : ''}repeat(${sh.cols},minmax(0,1fr));grid-template-rows:${sh.top ? 'auto ' : ''}repeat(${sh.per},minmax(0,1fr))">${sh.top ? (side ? '<span></span>' : '') + sh.top.map(t => `<span class="pvh">${e(t)}</span>`).join('') : ''}${sh.rows.map(r => (side ? `<span class="pvh l">${e(r.side || '')}</span>` : '') + Array.from({ length: sh.cols }, (_, i) => { const c = r.cells[i]; return c ? `<span class="pvc"><span class="pvi">${c.us.map(pic).join('')}</span><em>${e(c.label)}</em></span>` : '<span></span>'; }).join('')).join('')}</div></div>`; }).join('')}</div>
+    return `<div class="pv"><b>${e(sh.title)}</b><div class="pvg ${st.lines ? 'ln' : ''}" style="font-family:'${st.font}',sans-serif;grid-template-columns:${side ? sideW.toFixed(1) + '% ' : ''}repeat(${sh.cols},minmax(0,1fr));grid-template-rows:${sh.top ? 'auto ' : ''}repeat(${sh.per},minmax(0,1fr))">${sh.top ? (side ? '<span></span>' : '') + sh.top.map(t => `<span class="pvh" style="${pt(st.gsz)}">${e(t)}</span>`).join('') : ''}${sh.rows.map(r => (side ? `<span class="pvh l" style="${pt(st.gsz)}">${e(r.side || '')}</span>` : '') + Array.from({ length: sh.cols }, (_, i) => { const c = r.cells[i]; return c ? `<span class="pvc ${st.lpos}"><span class="pvi">${c.us.map(pic).join('')}</span><em style="${pt(st.lsz)}">${e(c.label)}</em></span>` : '<span></span>'; }).join('')).join('')}</div></div>`; }).join('')}</div>
    <div class="sm muted">${pl(shs.length, 'slide')} of pictures in all${shs.length > 2 ? '; the first two are shown' : ''}. Grey boxes are files the tracker has no small picture of; the real picture is used in the export.</div>`;
 }
 const isOwner = () => S.user === LAB_OWNER;
@@ -472,7 +478,9 @@ V.export = () => {
     <div class="xstep"><h3>2. How to lay it out</h3>
      <div class="kinds">${Object.entries(LAYS).map(([k, v]) => `<button class="kind ${o.layout === k ? 'on' : ''}" data-a="exLay" data-k="${k}" aria-pressed="${o.layout === k}" ${off}><b>${v[0]}</b><span>${v[1]}</span></button>`).join('')}</div>
      ${grid ? `<div class="rg"><label>Pictures across<input type="number" min="1" max="12" data-ex="cols" value="${o.cols}" ${off}></label><label>Rows down<input type="number" min="1" max="8" data-ex="rows" value="${o.rows}" ${off}></label><label>Groups<select data-ex="grp" ${off}>${GRPS.map(g => `<option value="${g[0]}" ${o.grp === g[0] ? 'selected' : ''}>${g[1]}</option>`).join('')}</select></label></div>
-      <div class="hint">${o.grp === 'top' ? 'With the group name on top there is one column for each group, so "pictures across" is not used. ' : ''}${o.layout === 'pairs' && !pn.sections.some(q => q.pairs) ? 'Pairs needs both tumour images and background-removed versions ticked in step 1; without them this is a plain grid. ' : ''}Each sample's name is written under its picture. Whatever does not fit on one slide carries on to the next.</div>` : ''}</div>
+      <div class="hint">${o.grp === 'top' ? 'With the group name on top there is one column for each group, so "pictures across" is not used. ' : ''}${o.layout === 'pairs' && !pn.sections.some(q => q.pairs) ? 'Pairs needs both tumour images and background-removed versions ticked in step 1; without them this is a plain grid. ' : ''}Whatever does not fit on one slide carries on to the next.</div>
+      <div class="rg"><label>Font<select data-ex="font" ${off}>${FONTS.map(q => `<option ${o.font === q ? 'selected' : ''}>${q}</option>`).join('')}</select></label><label>Group name size (points)<input type="number" min="6" max="40" data-ex="gsz" value="${o.gsz}" ${off}></label><label>Sample name size (points)<input type="number" min="5" max="28" data-ex="lsz" value="${o.lsz}" ${off}></label><label>Sample name goes<select data-ex="lpos" ${off}>${LPOS.map(q => `<option value="${q[0]}" ${o.lpos === q[0] ? 'selected' : ''}>${q[1]}</option>`).join('')}</select></label></div>
+      <label class="line sm"><input type="checkbox" data-ex="lines" ${o.lines ? 'checked' : ''} ${off}> Draw the grid as black lines around every picture and group name</label>` : ''}</div>
     <div class="xstep"><h3>3. Check the preview, then export</h3>
      ${previewHTML(pn, o, shs)}
      <div class="line"><button class="btn pri" data-a="exData" data-f="pptx" ${go}>Export as PowerPoint</button><button class="btn" data-a="exData" data-f="docx" ${go}>Export as Word</button><button class="btn" data-a="exData" data-f="zip" ${go || (drive ? '' : 'disabled')}>The original files (zip)</button></div>
@@ -504,7 +512,7 @@ export function xreqHTML() {
 }
 document.addEventListener('change', ev => {
   const el = ev.target, k = el.dataset && el.dataset.ex; if (!k || busy()) return;
-  if (k === 'cols') BL.cols = Math.max(1, Math.min(12, Math.round(+el.value) || 5)); else if (k === 'rows') BL.rows = Math.max(1, Math.min(8, Math.round(+el.value) || 4)); else if (k === 'grp') BL.grp = el.value; else O[k] = el.value;
+  if (k === 'cols') BL.cols = Math.max(1, Math.min(12, Math.round(+el.value) || 5)); else if (k === 'rows') BL.rows = Math.max(1, Math.min(8, Math.round(+el.value) || 4)); else if (k === 'grp') BL.grp = el.value; else if (k === 'lines') BL.lines = el.checked; else if (k === 'font' || k === 'gsz' || k === 'lsz' || k === 'lpos') Object.assign(BL, styleOf({ ...snapOpt(), [k]: el.value })); else O[k] = el.value;
   softRender();
 });
 const stampName = (sc, what, ext) => `${fileSafe(sc.p.name)} ${what} ${dayKey(now())}.${ext}`;

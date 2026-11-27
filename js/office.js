@@ -67,10 +67,10 @@ export async function xlsxBlob(sheets) {
      { img: { data: Uint8Array (JPEG), w, h } }   an image, already sized in pixels
      { brk: true }                       a page break */
 export async function docxBlob(meta, blocks) {
-  const D = await lib('docx'), { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ImageRun, ExternalHyperlink, PageBreak, AlignmentType, Footer, PageNumber, ShadingType, PageOrientation, VerticalAlign } = D;
+  const D = await lib('docx'), { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ImageRun, ExternalHyperlink, PageBreak, AlignmentType, Footer, PageNumber, ShadingType, PageOrientation, VerticalAlign, BorderStyle } = D;
   const H = { 1: HeadingLevel.HEADING_1, 2: HeadingLevel.HEADING_2, 3: HeadingLevel.HEADING_3 };
   const runs = (v, o = {}) => (Array.isArray(v) ? v : [v]).filter(r => r != null && r !== '').map(r => {
-    const q = typeof r === 'object' ? r : { t: r }, tr = x => new TextRun({ text: clean(q.t), bold: q.b || o.b, italics: q.i, color: q.c || o.c, size: o.size, ...x });
+    const q = typeof r === 'object' ? r : { t: r }, tr = x => new TextRun({ text: clean(q.t), bold: q.b || o.b, italics: q.i, color: q.c || o.c, size: o.size, font: o.font, ...x });
     return q.url && /^https?:\/\//i.test(q.url) ? new ExternalHyperlink({ link: q.url, children: [tr({ style: 'Hyperlink' })] }) : tr();
   });
   const para = (v, o = {}) => new Paragraph({ children: runs(v, o), spacing: { after: o.tight ? 40 : 110 }, alignment: o.center ? AlignmentType.CENTER : undefined, keepNext: o.keep });
@@ -79,11 +79,17 @@ export async function docxBlob(meta, blocks) {
     if (b.h) kids.push(new Paragraph({ text: clean(b.t), heading: H[b.h], pageBreakBefore: !!b.brk, keepNext: true }));
     else if (b.table) {
       const { head, rows, w } = b.table, n = head.length, pc = i => ({ size: (w && w[i]) || Math.floor(100 / n), type: WidthType.PERCENTAGE });
-      const mk = (cells, hd) => new TableRow({ tableHeader: hd, cantSplit: false, children: cells.slice(0, n).concat(Array(Math.max(0, n - cells.length)).fill('')).map((c, i) => new TableCell({ width: pc(i), margins: { top: 40, bottom: 40, left: 80, right: 80 }, shading: hd ? { type: ShadingType.CLEAR, color: 'auto', fill: 'E8EEEE' } : undefined,
+      const mk = (cells, hd) => new TableRow({ tableHeader: hd, cantSplit: false, children: cells.slice(0, n).concat(Array(Math.max(0, n - cells.length)).fill('')).map((c, i) => new TableCell({ width: pc(i), margins: { top: 40, bottom: 40, left: 80, right: 80 }, shading: hd && b.table.lines == null ? { type: ShadingType.CLEAR, color: 'auto', fill: 'E8EEEE' } : undefined,
         verticalAlign: c && c.imgs ? VerticalAlign.CENTER : undefined,
-        children: c && c.imgs ? [...(c.imgs.some(Boolean) ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 30 }, children: c.imgs.filter(Boolean).flatMap((im, j) => [...(j ? [new TextRun({ text: ' ' })] : []), new ImageRun({ type: 'jpg', data: im.data, transformation: { width: im.w, height: im.h } })]) })] : []), ...(c.lines || []).map(line => para(line, { size: c.size || 16, tight: true, center: true, b: c.b }))]
-          : (c && c.lines ? (c.lines.length ? c.lines : ['']) : [c]).map(line => para(line, { size: 18, b: hd || (c && c.b), tight: true })) })) });
-      kids.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [...(b.table.nohead ? [] : [mk(head, true)]), ...rows.map(r => mk(r, false))] }), para('', { tight: true }));
+        children: c && c.imgs ? (() => {
+          const pics = c.imgs.filter(Boolean).flatMap((im, j) => [...(j ? [new TextRun({ text: ' ' })] : []), new ImageRun({ type: 'jpg', data: im.data, transformation: { width: im.w, height: im.h } })]), lo = { size: c.size || 16, tight: true, center: true, b: c.b, font: c.font }, caps = (c.lines || []).map(line => para(line, lo)), word = t => new TextRun({ text: clean(t), size: lo.size, font: c.font });
+          if (!pics.length) return caps.length ? caps : [para('')];
+          if (c.pos === 'left' || c.pos === 'right') return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 30 }, children: c.pos === 'left' ? [word((c.lines || []).join(' ') + '  '), ...pics] : [...pics, word('  ' + (c.lines || []).join(' '))] })];
+          const pic = new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 30 }, children: pics }); return c.pos === 'above' ? [...caps, pic] : [pic, ...caps];
+        })()
+          : (c && c.lines ? (c.lines.length ? c.lines : ['']) : [c]).map(line => para(line, { size: (hd && b.table.hsize) || (c && c.size) || 18, b: hd || (c && c.b), tight: true, font: (c && c.font) || b.table.font, center: hd && !!b.table.hsize })) })) });
+      const edge = b.table.lines == null ? null : b.table.lines ? { style: BorderStyle.SINGLE, size: 8, color: '000000' } : { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+      kids.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, ...(edge ? { borders: { top: edge, bottom: edge, left: edge, right: edge, insideHorizontal: edge, insideVertical: edge } } : {}), rows: [...(b.table.nohead ? [] : [mk(head, true)]), ...rows.map(r => mk(r, false))] }), para('', { tight: true }));
     }
     else if (b.img) kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 110 }, children: [new ImageRun({ type: 'jpg', data: b.img.data, transformation: { width: b.img.w, height: b.img.h } })] }));
     else if (b.brk) kids.push(new Paragraph({ children: [new PageBreak()] }));
@@ -115,16 +121,23 @@ export async function pptxBlob(meta, slides) {
     sl.addText(clean(s.title), { x: 0.4, y, w: 12.5, h: 0.6, fontSize: s.big ? 28 : 20, bold: true, color: '14383B', fontFace: 'Calibri', fit: 'shrink' }); y += 0.65;
     if (s.sub) { const h = Math.min(1.5, 0.3 + 0.2 * Math.ceil(clean(s.sub).length / 150)); sl.addText(clean(s.sub), { x: 0.4, y, w: 12.5, h, fontSize: 11, color: '555555', fontFace: 'Calibri', valign: 'top', fit: 'shrink' }); y += h + 0.1; }
     if (s.sheet) {
-      const sh = s.sheet, side = sh.rows.some(r => r.side != null) ? 1.5 : 0, topH = sh.top ? 0.38 : 0, X0 = 0.4 + side, Y0 = y + topH, cw = (12.53 - side) / sh.cols, ch = (7.3 - Y0) / sh.per, lab = Math.min(0.3, ch * 0.2);
-      const txt = (t, o) => sl.addText(clean(t), { fontFace: 'Calibri', color: '222222', align: 'center', valign: 'middle', fit: 'shrink', margin: 0, ...o });
-      (sh.top || []).forEach((t, i) => txt(t, { x: X0 + i * cw, y, w: cw, h: topH, fontSize: 13, bold: true, color: '14383B' }));
+      // style: { font, gsz (group name size, points), lsz (sample name size), lpos (below, above, left or right of the picture), lines (draw the grid) }
+      const sh = s.sheet, st = sh.style || {}, font = st.font || 'Calibri', gsz = st.gsz || 13, lsz = st.lsz || 9, pos = st.lpos || 'below', hasSide = sh.rows.some(r => r.side != null);
+      const side = hasSide ? Math.max(1.5, Math.min(3.2, gsz * 0.115)) : 0, topH = sh.top ? Math.max(0.38, gsz / 72 * 1.9) : 0, X0 = 0.4 + side, Y0 = y + topH, cw = (12.53 - side) / sh.cols, ch = (7.3 - Y0) / sh.per;
+      const horiz = pos === 'left' || pos === 'right', lab = horiz ? Math.min(cw * 0.45, Math.max(0.35, lsz / 72 * 4)) : Math.min(ch * 0.4, lsz / 72 * 1.7);
+      const txt = (t, o) => sl.addText(clean(t), { fontFace: font, color: '222222', align: 'center', valign: 'middle', fit: 'shrink', margin: 0, ...o });
+      const box = (x, y2, w, h) => { if (st.lines) sl.addShape('rect', { x, y: y2, w, h, fill: { color: 'FFFFFF', transparency: 100 }, line: { color: '000000', width: 0.75 } }); };
+      (sh.top || []).forEach((t, i) => { box(X0 + i * cw, y, cw, topH); txt(t, { x: X0 + i * cw, y, w: cw, h: topH, fontSize: gsz, bold: true }); });
       sh.rows.forEach((r, ri) => {
-        if (r.side) txt(r.side, { x: 0.4, y: Y0 + ri * ch, w: side - 0.12, h: ch - lab, fontSize: 13, bold: true, color: '14383B', align: 'left' });
-        r.cells.forEach((c, ci) => {
-          if (!c) return; const bx = X0 + ci * cw + 0.05, by = Y0 + ri * ch + 0.03, bw = cw - 0.1, bh = ch - lab - 0.06, k = c.imgs.length || 1;
-          c.imgs.forEach((im, j) => { const sx = bx + j * bw / k, sw = bw / k - (k > 1 ? 0.04 : 0); if (!im) { txt('not shown', { x: sx, y: by, w: sw, h: bh, fontSize: 8, color: '999999' }); return; } const q = Math.min(sw / im.w, bh / im.h), w = im.w * q, h = im.h * q; sl.addImage({ data: 'image/jpeg;base64,' + b64(im.data), x: sx + (sw - w) / 2, y: by + (bh - h) / 2, w, h }); });
-          txt(c.label, { x: bx, y: by + bh + 0.02, w: bw, h: lab, fontSize: Math.max(7, Math.min(11, Math.round(cw * 6))) });
-        });
+        if (hasSide) { box(0.4, Y0 + ri * ch, side, ch); if (r.side) txt(r.side, { x: 0.46, y: Y0 + ri * ch, w: side - 0.12, h: ch, fontSize: gsz, bold: true, align: 'left' }); }
+        for (let ci = 0; ci < sh.cols; ci++) {
+          const c = r.cells[ci]; box(X0 + ci * cw, Y0 + ri * ch, cw, ch); if (!c) continue;
+          const bx = X0 + ci * cw + 0.05, by = Y0 + ri * ch + 0.04, bw = cw - 0.1, bh = ch - 0.08, k = c.imgs.length || 1;
+          const I = pos === 'above' ? [bx, by + lab, bw, bh - lab] : pos === 'left' ? [bx + lab, by, bw - lab, bh] : pos === 'right' ? [bx, by, bw - lab, bh] : [bx, by, bw, bh - lab];
+          const L = pos === 'above' ? [bx, by, bw, lab] : pos === 'left' ? [bx, by, lab, bh] : pos === 'right' ? [bx + bw - lab, by, lab, bh] : [bx, by + bh - lab, bw, lab];
+          c.imgs.forEach((im, j) => { const sx = I[0] + j * I[2] / k, sw = I[2] / k - (k > 1 ? 0.04 : 0); if (!im) { txt('not shown', { x: sx, y: I[1], w: sw, h: I[3], fontSize: 8, color: '999999' }); return; } const q = Math.min(sw / im.w, I[3] / im.h), w = im.w * q, h = im.h * q; sl.addImage({ data: 'image/jpeg;base64,' + b64(im.data), x: sx + (sw - w) / 2, y: I[1] + (I[3] - h) / 2, w, h }); });
+          txt(c.label, { x: L[0], y: L[1], w: L[2], h: L[3], fontSize: lsz });
+        }
       });
     }
     else if (s.img) { const bw = 12.5, bh = 7.3 - y, k = Math.min(bw / s.img.w, bh / s.img.h), w = s.img.w * k, h = s.img.h * k; sl.addImage({ data: 'image/jpeg;base64,' + b64(s.img.data), x: 0.4 + (bw - w) / 2, y, w, h }); }
