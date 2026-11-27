@@ -3,7 +3,7 @@
 
 import * as B from '../backend.js';
 import { $, DB, MIN, S, followLink, dur, e, errMsg, isMember, isSup, seesAll, nameOf, newDraft, now } from './core.js';
-import { P, X } from './protocols.js';
+import { P, PR, X } from './protocols.js';
 import { buildIdx, sess } from './runs.js';
 import { syncProgress } from './study.js';
 import { TABS, render, softRender } from './render.js';
@@ -155,7 +155,7 @@ export function rebuild() {
 }
 /* Where you are (tab, study, what is open, an unsaved protocol being built) is kept for this browser tab,
    so a refresh comes back to the same place. It is kept in the tab only and cleared on sign-out. */
-const KEEP = ['monView', 'monDay', 'selAnimal', 'mAll', 'tab', 'project', 'selMouse', 'selExp', 'selTarget', 'selProto', 'selNode', 'viewRev', 'openSession', 'planX', 'planType', 'planGroup', 'planQ', 'dOff', 'q', 'variant', 'edit', 'visOn', 'visDay', 'place'];
+const KEEP = ['monView', 'monDay', 'selAnimal', 'mAll', 'tab', 'project', 'selMouse', 'selExp', 'selTarget', 'selProto', 'selNode', 'viewRev', 'openSession', 'planX', 'planType', 'planGroup', 'planQ', 'dOff', 'q', 'variant', 'edit', 'visOn', 'visDay', 'place', 'linSel', 'linNode', 'linView', 'linAll'];
 let restored = false;
 export const forgetPlace = () => { restored = false; };   // on sign-out
 export function saveState() {
@@ -243,5 +243,5 @@ function fixSel() {
   if (S.openSession && !sess(S.openSession)) S.openSession = null;
   if (S.tpick && !DB.targets.some(t => t.id === S.tpick.t)) S.tpick = null;
   const m = S.modal;
-  if (m && ((m.type === 'note' && !sess(m.id)) || (m.type === 'run' && !X(m.x)) || (m.type === 'pre' && !(X(S.selExp) && S.picked.size)) || (['split', 'addVar', 'print', 'delProto'].includes(m.type) && !P(S.selProto)))) S.modal = null;
+  if (m && ((m.type === 'note' && !sess(m.id)) || (m.type === 'run' && !X(m.x)) || (m.type === 'pre' && !(X(S.selExp) && S.picked.size)) || (['split', 'addVar', 'print', 'delProto'].includes(m.type) && !P(S.selProto)) || (String(m.type).startsWith('lin') && !(PR(S.project) && PR(S.project).samples.some(q => q.id === m.m))))) S.modal = null;
 }

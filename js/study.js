@@ -51,7 +51,8 @@ let progT = null;
 export function syncProgress() {
   clearTimeout(progT); progT = setTimeout(() => {
     if (!S.ready || !S.fb) return; const ops = [];
-    for (const p of DB.projects) { const v = { name: p.name, pal: palOf(p), members: p.members, samples: p.samples.length, exps: p.exps.map(X).filter(Boolean).map(x => xProg(p, x)) }, old = SRV.get('progress/' + p.id), o = old ? { name: old.name, pal: old.pal, members: old.members, samples: old.samples, exps: old.exps } : null;
+    for (const p of DB.projects) { if (p.test) continue;   // a test study is not shown to the rest of the lab
+      const v = { name: p.name, pal: palOf(p), members: p.members, samples: p.samples.length, exps: p.exps.map(X).filter(Boolean).map(x => xProg(p, x)) }, old = SRV.get('progress/' + p.id), o = old ? { name: old.name, pal: old.pal, members: old.members, samples: old.samples, exps: old.exps } : null;
       if (!o || canon(o) !== canon(v)) ops.push({ op: 'set', path: 'progress/' + p.id, data: { ...v, at: now(), by: S.user } }); }
     if (ops.length) B.commit(ops).catch(() => {});
   }, 2500);

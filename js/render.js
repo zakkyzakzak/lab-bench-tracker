@@ -39,7 +39,7 @@ function gateView() {
 }
 
 /* ---------------- render ---------------- */
-const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['exps', 'Experiments'], ['monitor', 'Monitoring'], ['plan', 'Study plan'], ['export', 'Export']];
+const STUDY_TABS = [['today', 'Today'], ['timeline', 'Timeline'], ['targets', 'Targets'], ['overview', 'Overview'], ['mice', 'Samples'], ['lineage', 'Lineage'], ['exps', 'Experiments'], ['monitor', 'Monitoring'], ['plan', 'Study plan'], ['export', 'Export']];
 const LAB_TABS = [['protos', 'Protocols'], ['reag', 'Reagents'], ['map', 'Lab map'], ['duties', 'Lab duties'], ['others', 'Other projects'], ['lab', 'Lab and access']];
 export const TABS = [...STUDY_TABS, ...LAB_TABS];
 /* a study can pick a colour; everything inside that study's space is drawn in it, for everyone */
@@ -58,6 +58,7 @@ export function render(keepTyped) {
   if (g) { $('#app').innerHTML = g; $('#modal').innerHTML = ''; render.mh = ''; return; }
   const vis = visProj();
   if (proj() && S.selExp === undefined) S.selExp = proj().exps[0];
+  if (S.tab === 'lineage' && proj() && !proj().lin) S.tab = 'plan';   // the Lineage tab only exists in studies that grow cultures
   const keep = S.tab === render.tab ? [...document.querySelectorAll('#app .scroll, #app .rows')].map(el => [el.scrollTop, el.scrollLeft]) : []; render.tab = S.tab;
   const lock = lockFor(S.user), nn = inbox().length;
   const inStudy = STUDY_TABS.some(t => t[0] === S.tab), pal = palOf(proj()), labName = DB.lab.name || 'the lab';
@@ -71,7 +72,7 @@ export function render(keepTyped) {
      <div class="sm">What was refused has been put back as it was${S.fail.of > S.fail.bad.length + S.fail.more ? '; the rest was saved' : ''}. If this keeps happening, send a screenshot of this box.</div>
      ${S.fail.bad.map(b => `<div class="sm mono" style="white-space:normal;word-break:break-word">${e(b.op)} ${e(b.path)}${b.fields ? ' [' + e(b.fields) + ']' : ''} → ${e(b.code || 'error')}: ${e(b.msg.slice(0, 220))}</div>`).join('')}${S.fail.more ? `<div class="sm">and ${S.fail.more} more</div>` : ''}</section>` : ''}
    <nav class="nav2" aria-label="Sections">
-    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.map(tabBtn).join('')}</div></div>
+    <div class="navg study ${inStudy ? 'here' : ''}" data-pal="${pal}"><div class="navh"><span class="navt">Study</span>${vis.length ? `<select id="selProj" data-c="proj" aria-label="Study">${vis.map(p => `<option value="${p.id}" ${p.id === S.project ? 'selected' : ''}>${e(p.name)}</option>`).join('')}</select>` : '<span class="sm muted">none yet</span>'}<button class="btn sm" data-a="newStudy">New study</button></div><div class="tabs">${STUDY_TABS.filter(t => t[0] !== 'lineage' || (proj() && proj().lin)).map(tabBtn).join('')}</div></div>
     <div class="navg lab ${inStudy ? '' : 'here'}"><div class="navh"><span class="navt">Whole lab</span><span class="sm muted">shared by everyone in ${e(labName)}</span><button class="btn sm" data-a="bioLogin" title="Opens BioRender's sign-in page and gives you the 6-digit code for the lab's account">BioRender login</button></div><div class="tabs">${LAB_TABS.map(tabBtn).join('')}</div></div>
    </nav>
    ${inStudy ? (proj() ? `<div class="scope study" data-pal="${pal}"><b>${e(proj().name)}</b><span class="grow">You are inside this study. What you add or change on this page belongs to ${e(proj().name)} only.</span>${proj().drive && safeUrl(proj().drive.url) ? `<a class="btn sm" href="${e(proj().drive.url)}" target="_blank" rel="noopener noreferrer">Open the Google Drive folder for ${e(proj().name)}</a>${safeUrl(proj().drive.sheetUrl) ? `<a class="btn sm" href="${e(proj().drive.sheetUrl)}" target="_blank" rel="noopener noreferrer">Data sheet</a>` : ''}` : ''}</div>` : '')

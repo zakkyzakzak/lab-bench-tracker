@@ -341,7 +341,7 @@ button.ph{cursor:pointer;color:var(--accent);font-weight:600;font-family:inherit
 .ltree path{fill:none;stroke:var(--muted);stroke-width:1.5}
 .ltree path.thaw{stroke:var(--accent);stroke-dasharray:5 4}
 .ltree text{font-size:10.5px;fill:var(--accent);font-family:var(--sans)}
-.ln{position:absolute;width:136px;height:62px;display:grid;align-content:center;gap:1px;text-align:left;padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit;font-size:11.5px;line-height:1.3;cursor:pointer;overflow:hidden;transition:transform 140ms var(--ease-out),border-color 150ms ease}
+.ln{position:absolute;width:150px;height:62px;display:grid;align-content:center;gap:1px;text-align:left;padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit;font-size:11.5px;line-height:1.3;cursor:pointer;overflow:hidden;transition:transform 140ms var(--ease-out),border-color 150ms ease}
 .ln b{font-size:13px;font-weight:600} .ln span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 .ln.off{background:var(--sunk)}
 .ln.on{border-color:var(--ok);background:var(--ok-soft)} .ln.on .st{color:var(--ok);font-weight:600}

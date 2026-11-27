@@ -71,7 +71,8 @@ service cloud.firestore {
       // A supervisor sees every project anyway, so may create one without being listed.
       allow create: if isSup() || (isMember() && email() in request.resource.data.members);
       allow update: if isSup() || isOwner() || (isMember() && email() in resource.data.members);
-      allow delete: if isSup();
+      // A test study (made-up samples, marked test) may also be deleted by its own members or the lab owner.
+      allow delete: if isSup() || (resource.data.test == true && (isOwner() || (isMember() && email() in resource.data.members)));
 
       match /{coll}/{docId} {
         allow read, write: if isSup() || isOwner() || (isMember() && inProject(pid));

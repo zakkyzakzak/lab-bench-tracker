@@ -16,7 +16,8 @@ export function mouseRows() {
   }).join(''); }).join('') || `<div class="hint" style="padding:12px">${proj().samples.length ? 'No sample matches.' : 'No samples yet. Add them under Study plan.'}</div>`;
 }
 const anId = sid => String(sid).split(' ')[0];
-export function animals() { const m = new Map(); for (const s of proj().samples) { const a = anId(s.id); if (!m.has(a)) m.set(a, { id: a, group: s.group, samples: [] }); m.get(a).samples.push(s); } return [...m.values()]; }
+export function animals() { const m = new Map(); for (const s of proj().samples) { const a = s.line || anId(s.id);   // every passage of a lineage sits under its founder
+    if (!m.has(a)) m.set(a, { id: a, group: s.group, samples: [] }); m.get(a).samples.push(s); } return [...m.values()]; }
 export const anRec = a => DB.animals.find(q => q.proj === S.project && q.id === a);
 export const anMk = a => { let r = anRec(a); if (!r) DB.animals.push(r = { id: a, proj: S.project, files: [] }); return r; };
 /* the same, for a named study: an upload that finishes later must land in the study it was started in */
@@ -35,7 +36,7 @@ function animalView() {
     det = `<div class="hdr"><button class="back" data-a="back">← All animals</button><div class="anhead"><div class="stack" style="gap:6px"><div class="name"><span class="mono">${e(a.id)}</span>${gtag(a.group)}${rec.end ? flag('', 'Ended ' + dty(new Date(rec.end + 'T12:00').getTime())) : ''}</div>
       <div class="who">${e(proj().name)} · ${a.samples.length} sample${a.samples.length === 1 ? '' : 's'} · ${c.d} of ${c.n} runs done${rec.end && rec.why ? ' · ' + e(rec.why) : ''}</div>
       ${mon ? `<div class="who">${lw ? 'Last weight ' + lw.o.w + ' g on ' + dty(dayT(lw.day)) : 'No weight recorded'}${lv ? ' · last tumour volume ' + Math.round(tvol(lv.o)) + ' mm³ on ' + dty(dayT(lv.day)) : ''} · ${txCount(a.id)} of ${proj().mon.tx || 0} treatments · <button class="lnk" data-a="tab" data-k="monitor">Open Monitoring</button></div>` : ''}
-      <div class="line"><button class="btn sm" data-a="anData" data-an="${e(a.id)}">Associated data</button></div></div>${photoSquares(rec)}</div></div>
+      <div class="line"><button class="btn sm" data-a="anData" data-an="${e(a.id)}">Associated data</button>${proj().lin && a.samples.some(q => q.line) ? `<button class="btn sm" data-a="linGo" data-l="${e(a.id)}">Lineage tree</button>` : ''}</div></div>${photoSquares(rec)}</div></div>
      <div class="body">
       <div class="card"><div class="line"><h2 class="grow">Photos and files</h2>${addBtn()}</div>${waitLine(a.id)}
        ${rec.files.map(fileRow).join('') || '<div class="hint">No photos or files yet. Add photo or file puts it in this animal\'s folder in the study\'s Google Drive and links it here.</div>'}

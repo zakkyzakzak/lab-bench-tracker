@@ -9,7 +9,7 @@ import { PALS, palOf } from './render.js';
 /* ---------------- study plan ---------------- */
 export const clean = t => String(t).replace(/[<>"'&|]/g, '').replace(/\s+/g, ' ').trim();
 export const planCols = () => projExps().flatMap(x => (x.targets && x.targets.length ? x.targets : x.targets ? [] : ['']).map(t => ({ x, t }))).filter(c => !S.planX || c.x.id === S.planX);
-const hasRuns = m => [...IDX.keys()].some(k => k.endsWith('|' + m));
+const hasRuns = m => [...IDX.keys()].some(k => k.endsWith('|' + m)) || proj().samples.some(q => q.from === m);   // a passage that others were grown from stays too
 export function nextMouse() {
   const ss = proj().samples, base = q => q.id.split(' ')[0]; if (!ss.length) return 'M01'; const m = base(ss[ss.length - 1]).match(/^(.*?)(\d+)$/); if (!m) return base(ss[ss.length - 1]) + '-2';
   const all = new Set(DB.projects.flatMap(p => p.samples.map(base))); let mx = 0; ss.forEach(q => { const k = base(q).match(/^(.*?)(\d+)$/); if (k && k[1] === m[1]) mx = Math.max(mx, +k[2]); }); let n = mx + 1, id; do { id = m[1] + String(n++).padStart(m[2].length, '0'); } while (all.has(id)); return id;
@@ -26,16 +26,17 @@ V.plan = () => {
   if (!proj()) return noProj();
   const p = proj(), xs = projExps(), cols = planCols(), inUse = new Set(xs.map(x => x.proto)), nm = nextMouse(), selT = pTypes().filter(t => S.addT.has(t));
   const types = planTypes(), groups = pGroups(); if (!types.includes(S.planType)) S.planType = ''; if (!groups.includes(S.planGroup)) S.planGroup = ''; const rows = planRows();
-  return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><span class="sm muted">Study colour</span>${p.mon && p.mon.on ? '' : '<button class="btn sm" data-a="monOn">Switch on animal monitoring</button>'}<span class="swatches" role="group" aria-label="Study colour">${PALS.map(([k, l]) => `<button class="sw ${palOf(p) === k ? 'on' : ''}" data-pal="${k}" data-a="setPal" data-k="${k}" title="${l}" aria-label="${l}" aria-pressed="${palOf(p) === k}"></button>`).join('')}</span></div>
+  return `<div class="stack"><div class="card"><div class="line"><h2 class="grow">Study plan: ${e(p.name)}</h2><span class="sm muted">Study colour</span>${p.lin ? '' : '<button class="btn sm" data-a="linSwitch" title="For organoids and cell lines: passages, frozen stocks and a lineage tree">Switch on lineages</button>'}${p.mon && p.mon.on ? '' : '<button class="btn sm" data-a="monOn">Switch on animal monitoring</button>'}<span class="swatches" role="group" aria-label="Study colour">${PALS.map(([k, l]) => `<button class="sw ${palOf(p) === k ? 'on' : ''}" data-pal="${k}" data-a="setPal" data-k="${k}" title="${l}" aria-label="${l}" aria-pressed="${palOf(p) === k}"></button>`).join('')}</span></div>
    <div class="hint">Set a study up in three steps: list the samples you hold, choose the experiments from the lab protocols, then tick which sample gets which experiment. Overview, Samples, Experiments and Targets all follow what is ticked here.</div></div>
   <div class="cols">
    <div class="card"><h2>1. Samples <span class="muted sm">${p.samples.length} held</span></h2>
+    ${p.lin ? '<div class="todo sm"><span>This study grows cultures. Names added here become <b>founder samples</b>; their passages are added under Lineage as you make them, and each one then appears in the grid below.</span><button class="btn sm" data-a="tab" data-k="lineage">Open Lineage</button></div>' : ''}
     <label class="sm" for="smNames">Names, one per line or separated by commas<textarea id="smNames" rows="3" placeholder="M01, M02, M03"></textarea></label>
     <div class="rg"><label>One of each for these tissues (optional)<input type="text" id="smParts" placeholder="tumour, serum, kidney, brain"></label><label>Group (optional)<input type="text" id="smGroup" placeholder="e.g. treated"></label></div>
     <div class="line"><button class="btn" data-a="smAdd">Add samples</button><span class="err" id="smErr"></span></div>
     <div class="hint">With tissues filled in, M01 becomes M01 tumour, M01 serum and so on. A sample can sit here with nothing planned on it, so you still have a record that you hold it.</div>
     <details ${S.smOpen ? 'open' : ''}><summary class="sm">Show all ${p.samples.length} samples</summary><div class="mcs" style="margin-top:8px">${p.samples.map(m => `<span class="mc">${e(m.id)}${hasRuns(m.id) ? '' : `<button class="lnk" data-a="smDel" data-m="${e(m.id)}" aria-label="Remove ${e(m.id)}">×</button>`}</span>`).join('')}</div></details>
-    <div class="ti"><h3>Or add one mouse at a time</h3>
+    <div class="ti" ${p.lin ? 'hidden' : ''}><h3>Or add one mouse at a time</h3>
      <div class="sm"><b>Sample types</b> <span class="muted">click all that this mouse has; they stay selected for the next mouse</span></div>
      <div class="mcs">${pTypes().map(t => `<button class="mc ${S.addT.has(t) ? 'on' : ''}" data-a="mtT" data-t="${e(t)}" aria-pressed="${S.addT.has(t)}">${e(t)}</button>`).join('') || '<span class="hint">No sample types yet. Add them below, or leave empty for one sample per mouse.</span>'}</div>
      <div class="line"><input type="text" id="mtNew" class="grow" placeholder="A sample type, e.g. tumour" aria-label="New sample type"><button class="btn sm" data-a="mtTAdd">Add type</button></div>

@@ -152,6 +152,7 @@ function mirror_(proj, folder, drive) {
 function driveSync_() {
   const lab = lab_();
   docs_('/projects').forEach(function (proj) {
+    if (proj.data.test) return;   // a test study holds made-up samples: no Drive folder for it
     try { const f = folder_(proj); share_(f.folder, proj, lab); mirror_(proj, f.folder, f.drive); }
     catch (err) { console.error('Drive, ' + proj.data.name + ': ' + (err.message || err)); }
   });

@@ -16,6 +16,7 @@ import { photoActions } from './photos.js';
 import { exportActions } from './export.js';
 import { clean, nextMouse, pGroups, pTypes, planCols, planRows } from './plan.js';
 import { deal, dutyActions, dutySure, holders, labPeople, mKey, mName } from './duties.js';
+import { lineageActions, lineageSure } from './lineage.js';
 import { render, softRender, stale, typing } from './render.js';
 
 let bioT = 0;
@@ -89,7 +90,7 @@ export const A = {
   anFileAdd: () => { const name = val('afName'), url = val('afUrl'); if (!name) { $('#afErr').textContent = 'Give it a name.'; return false; } if (url && !safeUrl(url)) { $('#afErr').textContent = 'The link must start with https://'; return false; } anMk(S.selAnimal).files.push({ name, url, at: now(), by: S.user }); },
   anFileDel: d => { anMk(S.selAnimal).files.splice(+d.j, 1); },
   selMouse: d => { S.selMouse = d.m; S.mx = null; }, mx: d => { S.mx = S.mx === d.x ? null : d.x; },
-  back: () => { if (S.tab === 'mice') S.selMouse = null; if (S.tab === 'exps') S.selExp = null; if (S.tab === 'protos') { S.selProto = null; S.edit = null; } },
+  back: () => { if (S.tab === 'mice') S.selMouse = null; if (S.tab === 'exps') S.selExp = null; if (S.tab === 'lineage') S.linSel = null; if (S.tab === 'protos') { S.selProto = null; S.edit = null; } },
   selExp: d => { S.selExp = d.x; S.picked.clear(); S.variant = null; }, selT: d => { S.selTarget = d.t; S.picked.clear(); },
   pick25: () => { const x = X(S.selExp), t = x.targets ? S.selTarget : ''; S.picked.clear(); for (const m of proj().samples) { if (S.picked.size >= 25) break; if (stOf(x.id, t, m.id) === 'todo') S.picked.add(m.id); } },
   pick0: () => S.picked.clear(),
@@ -187,13 +188,13 @@ export const A = {
   addProj: d => { const p = P(d.p || S.selProto); if (!proj()) return false; if (!projExps().some(q => q.proto === p.id)) { const x = { id: nid(), name: p.name, proto: p.id, proj: S.project }; if (p.sched && p.sched.n > 1) { x.targets = rounds(p.sched); x.sched = { days: p.sched.days || 0 }; } DB.exps.push(x); proj().exps.push(x.id); } toast(p.name + ' added to ' + proj().name + '. Tick which samples get it under Study plan.'); },
   newStudy: () => S.modal = { type: 'newStudy' },
   newStudySave: () => {
-    const nm = clean(val('nsName')); if (!nm) return mErr('Give the study a name.'); const id = nid();
-    DB.projects.push({ id, name: nm, desc: clean(val('nsDesc')), members: isSup() ? [] : [S.user], exps: [], samples: [], createdBy: S.user, createdAt: now() });
-    S.project = id; S.selMouse = null; S.picked.clear(); S.draft = newDraft(); S.tpick = null; S.planX = ''; S.selExp = undefined; S.modal = null; S.tab = 'plan'; toast('Study created. Add its samples and experiments below.');
+    const nm = clean(val('nsName')), lin = val('nsKind') === 'lin'; if (!nm) return mErr('Give the study a name.'); const id = nid();
+    DB.projects.push({ id, name: nm, desc: clean(val('nsDesc')), members: isSup() ? [] : [S.user], exps: [], samples: [], createdBy: S.user, createdAt: now(), ...(lin ? { lin: true } : {}) });
+    S.project = id; S.selMouse = null; S.picked.clear(); S.draft = newDraft(); S.tpick = null; S.planX = ''; S.selExp = undefined; S.modal = null; S.tab = lin ? 'lineage' : 'plan'; S.linSel = null; S.linNode = null; toast(lin ? 'Study created. Add the first founder sample on the left, and its experiments under Study plan.' : 'Study created. Add its samples and experiments below.');
   },
   smAdd: () => {
     const names = val('smNames').split(/[\n,]/).map(clean).filter(Boolean), parts = val('smParts').split(',').map(clean).filter(Boolean), g = clean(val('smGroup')); if (!names.length) { $('#smErr').textContent = 'Type at least one name.'; return false; }
-    const have = new Set(DB.projects.flatMap(p => p.samples.map(m => m.id))); let add = 0, dup = 0; for (const n of names) for (const id of parts.length ? parts.map(q => n + ' ' + q) : [n]) { if (have.has(id)) { dup++; continue; } have.add(id); proj().samples.push({ id, group: g }); add++; }
+    const have = new Set(DB.projects.flatMap(p => p.samples.map(m => m.id))); let add = 0, dup = 0; for (const n of names) for (const id of parts.length ? parts.map(q => n + ' ' + q) : [n]) { if (have.has(id)) { dup++; continue; } have.add(id); proj().samples.push(proj().lin ? { id, group: g, line: id, p: 0, from: '', at: dayKey(now()) } : { id, group: g }); add++; }
     toast(add + ' sample' + (add === 1 ? '' : 's') + ' added' + (dup ? ', ' + dup + ' skipped because the name already exists in a study' : '') + '.');
   },
   mtT: d => { S.addT.has(d.t) ? S.addT.delete(d.t) : S.addT.add(d.t); }, mtG: d => { S.addG = d.g; },
@@ -356,7 +357,7 @@ export const A = {
   rmMem: d => { const p = PR(d.p); p.members = p.members.filter(u => u !== d.u); },
 };
 /* Anything that deletes or removes asks first. Each entry gives the question, what is lost, and the button text. */
-Object.assign(A, photoActions, exportActions, dutyActions);
+Object.assign(A, photoActions, exportActions, dutyActions, lineageActions);
 export const SURE = {
   exSetDel: d => ['Remove this saved export set-up?', ((proj().xsets || []).find(q => q.id === d.id) || {}).name || '', 'Remove set-up'],
   exReqDel: () => ['Remove this custom export request?', 'It is removed for everyone in the study.', 'Remove request'],
@@ -375,7 +376,7 @@ export const SURE = {
   anUnend: d => [`Mark ${d.an} as not ended?`, 'Its end date and reason are cleared.', 'Clear the end'],
   edDel: d => [`Remove step ${+d.i + 1}?`, 'Everything typed in this step is lost.', 'Remove step'],
 };
-Object.assign(SURE, dutySure);
+Object.assign(SURE, dutySure, lineageSure);
 document.addEventListener('click', ev => {
   const el = ev.target.closest('[data-a]'); if (!el) return; let a = el.dataset.a, d = el.dataset, sure = false;
   if (a === 'sureYes') { const m = S.modal; if (!m || m.type !== 'sure') return; a = m.a; d = m.d; S.modal = m.back || null; sure = true; }

@@ -23,6 +23,13 @@ its files, for example in Google Drive.
 - **Experiments / Today**: bench sessions for a batch of samples, step by step, with timers,
   check boxes and deviations noted per sample or per batch.
 - **Overview / Samples**: every sample against every experiment, and the full record of each run.
+- **Lineage** (studies that grow cultures, such as organoids and cell lines): a founder sample (B055), its
+  passages (B055-P1, B055-P2 ...), the stocks frozen along the way and the vials thawed again, as a tree or a
+  table. Each passage becomes its own sample when it is recorded, so the sample list builds up as the work goes on.
+  A run belongs to the passage it was done on and also counts towards the founder as a whole. A culture grown from
+  a thawed vial starts a branch, named with a letter (B055-P4b). Switched on per study, when it is created or
+  under Study plan. New study also offers a test study with made-up samples (names start with T); it is kept out
+  of Other projects and Google Drive, and its members can delete it under Lab and access.
 - **Reagents**: stock counted down from finished steps, with a low-stock warning.
 - **Lab map**: each room as a 3D scan (a GLB file from a phone's LiDAR scanning app), the places inside it
   (fridges, shelves, drawers) marked on the scan, the items kept in each place, photos, and a record of when
@@ -60,7 +67,7 @@ The app starts empty: there is no example data.
 ## Files
 - `index.html`, `styles.css`, `app.js`: the page, its styles and the start-up code (no build step).
 - `js/`: the app itself, one file per area (`core`, `sync`, `protocols`, `reagents`, `targets`, `monitoring`,
-  `study`, `animals`, `photos`, `uploads`, `plan`, `duties`, `export`, `office`, `lab`, `modal`, `render`, `actions`, `welcome`, and for the lab map
+  `study`, `animals`, `lineage`, `photos`, `uploads`, `plan`, `duties`, `export`, `office`, `lab`, `modal`, `render`, `actions`, `welcome`, and for the lab map
   `places`, `map`, `scan`, `blobs`). Each file starts with a line saying what it holds.
 - `backend.js`: the only file that talks to Firebase (SDK loaded from gstatic).
 - `config.js`: Firebase web settings (public identifiers, not secrets).
@@ -74,7 +81,9 @@ The app starts empty: there is no example data.
 ## Where data is stored (Firestore)
 - `config/lab`: lab name, admins, members, supervisors.
 - `users/{uid}`: name and email; `users/{uid}/private/backlog`: that person's backlog.
-- `projects/{id}`: name, description, members, samples, experiment order. Under it: `exps`,
+- `projects/{id}`: name, description, members, samples, experiment order. In a study with lineages (`lin`),
+  a sample also carries its founder (`line`), passage number (`p`), parent (`from`), date made (`at`), whether it
+  is in culture (`on`) and its freeze, thaw and end events (`ev`). Under it: `exps`,
   `asg` (which sample gets which experiment), `sessions`, `targets`, `files` (result links).
 - Lab-wide: `protocols`, `reagents`, `duties`, `rota` (one per month), `dutyLog`, `dutyRequests`,
   `places` and `items` (the lab map), `blobs/{id}/parts/{n}` (room scans and photos, stored in pieces of

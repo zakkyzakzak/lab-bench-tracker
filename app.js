@@ -17,6 +17,7 @@ import './js/today.js';
 import './js/monitoring.js';
 import './js/study.js';
 import './js/animals.js';
+import './js/lineage.js';
 import './js/lab.js';
 import './js/plan.js';
 import './js/duties.js';
