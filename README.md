@@ -26,7 +26,8 @@ its files, for example in Google Drive.
 - **Lineage** (studies that grow cultures, such as organoids and cell lines): a founder sample (B055), its
   passages (B055-P1, B055-P2 ...), the stocks frozen along the way and the vials thawed again, as a tree or a
   table. Each passage becomes its own sample when it is recorded, so the sample list builds up as the work goes on.
-  A run belongs to the passage it was done on and also counts towards the founder as a whole. A culture grown from
+  A run belongs to the passage it was done on and also counts towards the founder as a whole. An experiment is
+  planned on one passage, on every passage of a founder at once, or on every new passage by itself as it is added. A culture grown from
   a thawed vial starts a branch, named with a letter (B055-P4b). Switched on per study, when it is created or
   under Study plan. New study also offers a test study with made-up samples (names start with T); it is kept out
   of Other projects and Google Drive, and its members can delete it under Lab and access.

@@ -3,7 +3,7 @@
 // ordinary sample (so it can be ticked for experiments and run on the bench) that also remembers where it came from.
 //
 // A sample in a lineage carries: line (the founder's name), p (passage number, 0 for the founder), from (the sample
-// it was passaged from), at (the day it was made), on (true while it is in culture), thaw (true when it was grown
+// it was passaged from), at (the day it was made), auto (on the founder only: experiments planned on every new passage by itself), on (true while it is in culture), thaw (true when it was grown
 // from a thawed vial) and ev, its events: { k: 'fz' | 'th' | 'end', at, n, where, why, by }.
 
 import { $, AFTER, DAY, DB, MIN, S, V, e, flag, isSup, newDraft, nid, now, toast } from './core.js';
@@ -101,12 +101,25 @@ function tableHTML(L, sel) {
     <tbody>${T.cells.map(c => { const m = c.m, v = vials(m); return `<tr class="${m.id === sel ? 'lsel' : ''}"><td><button class="lnk mono" data-a="linNode" data-m="${e(m.id)}">${e(m.id)}</button></td><td class="g mono">${m.from ? e(short(smp(m.from) || { id: m.from })) + (m.thaw ? ' (thawed)' : '') : 'founder'}</td><td class="g">${m.at ? dty(dayT(m.at)) : ''}</td><td class="g">${m.on ? flag('ok', 'In culture') : evs(m, 'end').length ? 'Ended' : kidsOf(m.id).length ? 'Passaged on' : ''}</td><td>${v ? v + ' vial' + (v === 1 ? '' : 's') : ''}</td>${xs.map(x => cell(x, m)).join('')}</tr>`; }).join('')}</tbody></table></div>
     <div class="hint">A dash means that experiment is not planned on that passage. Click a passage for its record.</div></div>`;
 }
+/* planning one experiment across a lineage: on a passage, on every passage, and on passages still to come */
+const lacks = (x, m) => (x.targets || ['']).some(t => stOf(x.id, t, m.id) === 'na');
+const planOn = (x, sid) => { for (const t of x.targets || ['']) if (stOf(x.id, t, sid) === 'na') DB.asg.add(key(x.id, t, sid)); };
+const held = m => !!m.on || vials(m) > 0;
+const rootOf = line => SS().find(m => m.line === line && !m.from);
+const autoOf = line => ((rootOf(line) || {}).auto || []).map(id => projExps().find(x => x.id === id)).filter(Boolean);
+function acrossHTML(L) {
+  const xs = projExps(), ps = L.nodes.filter(m => m.from); if (!xs.length) return '';
+  return `<div class="ti"><h3>Plan an experiment across ${e(L.id)}</h3><div class="hint">For an experiment every passage gets, such as RNA extraction. An experiment meant for one or two passages only is added on the passage itself, above. "Still held" means in culture or with frozen vials; a passage that was passaged on has nothing left to test, so plan on those only to record work that was done at the time.</div>
+    ${xs.map(x => { const miss = ps.filter(m => lacks(x, m)), mh = miss.filter(held), auto = (L.root.auto || []).includes(x.id);
+      return `<div class="line sm" style="border-top:1px solid var(--line);padding-top:7px"><b class="grow">${e(x.name)}</b>${!ps.length ? '<span class="muted">no passages yet</span>' : !miss.length ? flag('ok', 'On every passage') : `${mh.length ? `<button class="btn sm" data-a="linPlanHeld" data-l="${e(L.id)}" data-x="${x.id}">Plan on the ${mh.length} still held</button>` : ''}${miss.length > mh.length ? `<button class="btn sm" data-a="linPlanEvery" data-l="${e(L.id)}" data-x="${x.id}">Plan on all ${miss.length} without it</button>` : ''}`}
+        <button class="chip ${auto ? 'view' : ''}" data-a="linAuto" data-l="${e(L.id)}" data-x="${x.id}" aria-pressed="${auto}" title="When on, this experiment is planned on each new passage of ${e(L.id)} as it is added">${auto ? '✓ On every new passage' : 'Also on every new passage'}</button></div>`; }).join('')}</div>`;
+}
 /* everything done anywhere under the founder, experiment by experiment, with the passages it was done on */
 function rollHTML(L) {
   const xs = projExps(), rows = xs.map(x => { let d = 0, r = 0, n = 0; const on = []; for (const m of L.nodes) { const c = expCount(x, m.id); if (!c.n) continue; d += c.d; r += c.r; n += c.n; on.push({ m, c }); } return { x, d, r, n, on }; }).filter(q => q.n);
   return `<div class="card"><h2>Experiments under ${e(L.id)}</h2><div class="hint">Every run on any passage counts towards ${e(L.id)} as a whole. Each run still belongs to the passage it was done on: a result for P3 is not a result for P33.</div>
     ${rows.map(q => `<div class="pg"><b class="sm">${e(q.x.name)}</b><span class="sm muted">${q.d} of ${pl(q.n, 'run')} done${q.r ? ' · ' + q.r + ' on the bench' : ''}</span><div class="bar two"><i style="width:${q.d / q.n * 100}%"></i><u style="width:${q.r / q.n * 100}%"></u></div>
-      <div class="mcs cap">${q.on.map(o => `<button class="mc ${o.c.d === o.c.n ? 'done' : o.c.d || o.c.r ? 'run' : ''}" data-a="linNode" data-m="${e(o.m.id)}" title="${e(o.m.id)}: ${o.c.d} of ${o.c.n} done">${e(short(o.m))}${o.c.d === o.c.n ? ' ✓' : o.c.n > 1 ? ' ' + o.c.d + '/' + o.c.n : ' to do'}</button>`).join('')}</div></div>`).join('') || '<div class="hint">Nothing is planned on any passage yet. Choose a passage below and plan an experiment on it.</div>'}</div>`;
+      <div class="mcs cap">${q.on.map(o => `<button class="mc ${o.c.d === o.c.n ? 'done' : o.c.d || o.c.r ? 'run' : ''}" data-a="linNode" data-m="${e(o.m.id)}" title="${e(o.m.id)}: ${o.c.d} of ${o.c.n} done">${e(short(o.m))}${o.c.d === o.c.n ? ' ✓' : o.c.n > 1 ? ' ' + o.c.d + '/' + o.c.n : ' to do'}</button>`).join('')}</div></div>`).join('') || '<div class="hint">Nothing is planned on any passage yet. Choose a passage above and plan an experiment on it, or plan one across the whole lineage below.</div>'}${acrossHTML(L)}</div>`;
 }
 /* one passage: what it is, what happened to it, what can be done next, and its experiments */
 function nodeHTML(m, L) {
@@ -170,7 +183,7 @@ export function linModal(md) {
       <div class="rg"><label>Name of the new passage<input type="text" id="lpName" value="${e(nextName(m))}"></label>${day('lpDay', 'Date passaged')}</div>
       ${sib ? `<div class="todo sm"><span>${e(m.id)} has already been passaged on to <span class="mono">${e(kidsOf(m.id).map(k => k.id).join(', '))}</span>, so this starts a separate branch. A letter is added to the name to keep the two apart; change it if your lab labels branches differently.</span></div>` : ''}
       <div class="pick"><label><input type="checkbox" id="lpKeep"> ${e(m.id)} also stays in culture</label></div>
-      <div class="hint">Left unticked, ${e(m.id)} is recorded as passaged on. Any vials frozen from it stay in the freezer either way.</div>${foot('linPassSave', 'Add passage')}`; }
+      <div class="hint">Left unticked, ${e(m.id)} is recorded as passaged on. Any vials frozen from it stay in the freezer either way.</div>${autoOf(m.line).length ? `<div class="hint">Planned on the new passage by itself: <b>${e(autoOf(m.line).map(x => x.name).join(', '))}</b>. This is set under Experiments under ${e(m.line)}.</div>` : ''}${foot('linPassSave', 'Add passage')}`; }
   if (md.type === 'linFreeze') return `<h2>Freeze a stock of <span class="mono">${e(m.id)}</span></h2>
       <div class="rg"><label>Number of vials<input type="number" id="lzN" min="1" step="1" value="4"></label>${day('lzDay', 'Date frozen')}</div>
       <label>Where they are kept (optional)<input type="text" id="lzWhere" placeholder="e.g. -80 freezer 2, rack B, box 4"></label>
@@ -208,7 +221,8 @@ export const lineageActions = {
     if (!id) return mErr('Give the new passage a name.'); if (taken(id)) return mErr('That name is already used by a sample in a study.'); if (!goodDay(day)) return mErr('Choose the date it was passaged, today or earlier.');
     const n = { id, group: par.group || '', line: par.line, p: (par.p || 0) + 1, from: par.id, at: day, on: true }; if (par.thawed) n.thaw = true;
     SS().push(n); if (!$('#lpKeep').checked) delete par.on; delete par.thawed;
-    S.linNode = id; S.linJump = true; S.modal = null; toast(id + ' added. It is now a sample in this study.');
+    const au = autoOf(par.line); au.forEach(x => planOn(x, id));
+    S.linNode = id; S.linJump = true; S.modal = null; toast(id + ' added. It is now a sample in this study' + (au.length ? ', with ' + au.map(x => x.name).join(', ') + ' planned on it.' : '.'));
   },
   linFreezeSave: () => {
     const m = smp(S.modal.m), n = Math.round(+val('lzN')), day = val('lzDay'); if (!m) return false;
@@ -230,12 +244,17 @@ export const lineageActions = {
     p.samples = p.samples.filter(q => q !== m); [...DB.asg].forEach(k => { if (k.endsWith('|' + m.id) && projExps().some(x => k.startsWith(x.id + '|'))) DB.asg.delete(k); });
     S.linNode = m.from || null; if (!m.from) S.linSel = null;
   },
+  linPlanHeld: d => { const x = projExps().find(q => q.id === d.x), ms = SS().filter(m => m.line === d.l && m.from && held(m) && x && lacks(x, m)); if (!ms.length) return false; ms.forEach(m => planOn(x, m.id)); toast(`${x.name} planned on ${pl(ms.length, 'passage')} of ${d.l}.`); },
+  linPlanEvery: d => { const x = projExps().find(q => q.id === d.x), ms = SS().filter(m => m.line === d.l && m.from && x && lacks(x, m)); if (!ms.length) return false; ms.forEach(m => planOn(x, m.id)); toast(`${x.name} planned on ${pl(ms.length, 'passage')} of ${d.l}.`); },
+  linAuto: d => { const r = rootOf(d.l), x = projExps().find(q => q.id === d.x); if (!r || !x) return false; const on = (r.auto || []).includes(x.id); r.auto = (r.auto || []).filter(q => q !== x.id && projExps().some(y => y.id === q)); if (!on) r.auto.push(x.id); if (!r.auto.length) delete r.auto;
+    toast(on ? `${x.name} is no longer planned on new passages of ${d.l}. Passages that already have it keep it.` : `${x.name} will be planned on every new passage of ${d.l} from now on.`); },
   linPlan: d => { const v = val('lnPlan'), i = v.indexOf('|'), x = projExps().find(q => q.id === v.slice(0, i)), t = v.slice(i + 1); if (!x || !smp(d.m)) return false;
     for (const g of t === '*' ? x.targets || [''] : [t]) if (stOf(x.id, g, d.m) === 'na') DB.asg.add(key(x.id, g, d.m)); toast(`${x.name} planned on ${d.m}.`); },
   linRun: d => { S.tab = 'exps'; S.selExp = d.x; S.selTarget = d.t || ''; S.variant = null; S.picked = new Set([d.m]); toast(d.m + ' is ticked. Tick any others for the same batch, then start the bench session.'); },
   linTest: () => { S.modal = null; const old = DB.projects.find(p => p.test); if (old) { openStudy(old.id); S.tab = 'lineage'; toast('Opened the test study that already exists.'); return; } testStudy(); },
 };
 export const lineageSure = {
+  linPlanEvery: d => { const x = projExps().find(q => q.id === d.x) || {}, ms = SS().filter(m => m.line === d.l && m.from && x.id && lacks(x, m)), gone = ms.filter(m => !held(m)).length; return [`Plan ${x.name || 'this experiment'} on ${pl(ms.length, 'passage')} of ${d.l}?`, `${gone} of them ${gone === 1 ? 'is' : 'are'} no longer in culture and ${gone === 1 ? 'has' : 'have'} no frozen vials, so ${gone === 1 ? 'it' : 'they'} will show as to do until a run is recorded. Ticks can be taken off again under Study plan.`, 'Plan on all of them']; },
   linDel: d => [`Remove ${d.m} from the lineage?`, 'It is taken out of the study and unticked from every experiment in the plan. Use this for a passage added by mistake.', 'Remove passage'],
   linEvDel: d => { const q = ((smp(d.m) || {}).ev || [])[+d.i] || {}; return ['Undo this entry?', `${q.k === 'fz' ? 'Freezing ' + pl(q.n, 'vial') : q.k === 'th' ? 'Thawing ' + pl(q.n, 'vial') : 'Ending the culture'} of ${d.m} is taken off the record.`, 'Undo entry']; },
 };
