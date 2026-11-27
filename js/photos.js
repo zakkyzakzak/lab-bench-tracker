@@ -177,6 +177,10 @@ export function anDataHTML(m) {
   const a = animals().find(q => q.id === m.an); if (!a) return '<h2>Associated data</h2><div class="hint">That animal is no longer in this study.</div>';
   const xs = projExps(), mine = new Set(a.samples.map(s => s.id)), rec = anRec(a.id) || { files: [] }, seen = new Set(), shared = [];
   const link = f => safeUrl(f.url) ? `<a class="lnk" href="${e(f.url)}" target="_blank" rel="noopener noreferrer">${e(f.name)}</a>` : `<span class="mono">${e(f.name)}</span>`;
+  /* a file's line: its preview picture when the tracker has one (otherwise a tile with the kind of file), then the link */
+  const ext = f => ((/\.([a-z0-9]{1,5})$/i.exec(f.name || '') || [])[1] || 'file').toUpperCase();
+  const pv = f => { const inner = f.th ? `<img src="${e(f.th)}" alt="">` : `<span>${e(ext(f))}</span>`; return safeUrl(f.url) ? `<a class="phmid ${f.of ? 'cut' : ''} ${f.th ? '' : 'none'}" href="${e(f.url)}" target="_blank" rel="noopener noreferrer" title="Open ${e(f.name)}">${inner}</a>` : `<span class="phmid ${f.th ? '' : 'none'}">${inner}</span>`; };
+  const frow = (f, meta) => `<div class="line sm" style="flex-wrap:nowrap">${pv(f)}<span class="grow" style="min-width:0">${link(f)} <span class="muted">${meta}</span></span></div>`;
   const blocks = a.samples.map(smp => {
     const rows = [];
     for (const x of xs) for (const t of x.targets || ['']) {
@@ -185,16 +189,16 @@ export function anDataHTML(m) {
       fs.forEach(f => { if ((f.keys || []).length > 1 && !seen.has(f.id)) { seen.add(f.id); shared.push(f); } });
       rows.push(`<div class="ti"><div class="line sm"><b class="grow">${e(x.name)}${t ? ' ' + e(t) : ''}</b>${s ? flag(s.doneAt ? 'ok' : 'warn', s.doneAt ? 'Done ' + dt(s.doneAt) : 'On the bench') : flag('', 'Not run')}</div>
         ${res.length ? `<div class="sm">${res.map(([n, v]) => `<span class="mono">${e(n)}: <b>${e(v)}</b></span>`).join(' · ')}</div>` : ''}
-        ${fs.map(f => `<div class="sm">${link(f)} <span class="muted">· ${dt(f.at)}${(f.keys || []).length > 1 ? ' · one file for ' + f.keys.length + ' samples' : ''}</span></div>`).join('')}</div>`);
+        ${fs.map(f => frow(f, `· ${dt(f.at)}${(f.keys || []).length > 1 ? ' · one file for ' + f.keys.length + ' samples' : ''}`)).join('')}</div>`);
     }
     return rows.length ? `<div class="card"><h3>${e(smp.id)}</h3>${rows.join('')}</div>` : '';
   }).filter(Boolean);
-  const sharedHTML = shared.map(f => { const who = (f.keys || []).map(k => k.split('|').slice(2).join('|')), x = X((f.key || '').split('|')[0]); return `<div class="ti"><div class="sm">${link(f)} <span class="muted">· ${e(x ? x.name : '')} · ${dt(f.at)}</span></div><div class="mcs">${who.map(w => `<span class="mc ${mine.has(w) ? 'on' : ''}">${e(w)}</span>`).join('')}</div></div>`; }).join('');
+  const sharedHTML = shared.map(f => { const who = (f.keys || []).map(k => k.split('|').slice(2).join('|')), x = X((f.key || '').split('|')[0]); return `<div class="ti">${frow(f, `· ${e(x ? x.name : '')} · ${dt(f.at)}`)}<div class="mcs">${who.map(w => `<span class="mc ${mine.has(w) ? 'on' : ''}">${e(w)}</span>`).join('')}</div></div>`; }).join('');
   return `<h2>Associated data: ${e(a.id)}</h2><div class="hint">Everything recorded in the tracker for this animal's samples: runs, typed results and result files, including files that cover several samples at once.</div>
     ${shared.length ? `<div class="card"><h3>Files shared with other samples</h3><div class="hint">For example one gel with several lanes. This animal's samples are highlighted.</div>${sharedHTML}</div>` : ''}
     ${blocks.join('') || '<div class="hint">Nothing has been run or attached for this animal\'s samples yet.</div>'}
-    ${(g => g.length ? `<div class="card"><h3>Graphs for ${e(a.group || 'all groups')}</h3>${g.map(f => `<div class="sm">${link(f)} <span class="muted">· ${e(tagTxt(f))} · ${dt(f.at)}</span></div>`).join('')}</div>` : '')(sharedFor(a).filter(f => f.kind === 'graph'))}
-    ${rec.files.length ? `<div class="card"><h3>Photos and files of the animal</h3>${rec.files.map(f => `<div class="sm">${link(f)} <span class="muted">· ${dt(f.at)}${f.of ? ' · background removed' : ''}</span></div>`).join('')}</div>` : ''}
+    ${(g => g.length ? `<div class="card"><h3>Graphs for ${e(a.group || 'all groups')}</h3>${g.map(f => frow(f, `· ${e(tagTxt(f))} · ${dt(f.at)}`)).join('')}</div>` : '')(sharedFor(a).filter(f => f.kind === 'graph'))}
+    ${rec.files.length ? `<div class="card"><h3>Photos and files of the animal</h3>${rec.files.map(f => frow(f, `· ${dt(f.at)}${f.w ? ' · ' + f.w + ' × ' + f.h + ' px' : ''}${f.of ? ' · background removed' : ''}`)).join('')}</div>` : ''}
     <div class="foot"><button class="btn" data-a="close">Close</button></div>`;
 }
 

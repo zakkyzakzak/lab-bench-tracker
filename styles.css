@@ -280,7 +280,9 @@ a.lnk{font-weight:600}
 .ph.none{border-style:dashed} .ph span{padding:0 8px}
 button.ph{cursor:pointer;color:var(--accent);font-weight:600;font-family:inherit} button.ph:active{transform:scale(.97)}
 @media (hover:hover) and (pointer:fine){a.ph:hover,button.ph:hover{border-color:var(--accent)}}
-.ph.cut,.phmini.cut{background-color:#fff;background-image:linear-gradient(45deg,#d9dfdf 25%,transparent 25%,transparent 75%,#d9dfdf 75%),linear-gradient(45deg,#d9dfdf 25%,transparent 25%,transparent 75%,#d9dfdf 75%);background-size:14px 14px;background-position:0 0,7px 7px}
+.ph.cut,.phmini.cut,.phmid.cut{background-color:#fff;background-image:linear-gradient(45deg,#d9dfdf 25%,transparent 25%,transparent 75%,#d9dfdf 75%),linear-gradient(45deg,#d9dfdf 25%,transparent 25%,transparent 75%,#d9dfdf 75%);background-size:14px 14px;background-position:0 0,7px 7px}
+.phmid{width:104px;height:78px;border-radius:6px;border:1px solid var(--line);background:var(--sunk);display:grid;place-items:center;overflow:hidden;flex:none;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.06em;text-decoration:none}
+.phmid.none{height:40px} .phmid img{width:100%;height:100%;object-fit:contain;display:block}
 .phmini{width:44px;height:34px;object-fit:contain;border-radius:4px;border:1px solid var(--line);background:var(--sunk);flex:none}
 #cutter{position:fixed;inset:0;z-index:900;background:rgba(8,20,22,.6);display:grid;place-items:center;padding:14px;transition:opacity 180ms ease}
 @starting-style{#cutter{opacity:0}}
@@ -332,3 +334,21 @@ button.ph{cursor:pointer;color:var(--accent);font-weight:600;font-family:inherit
 .thumbs{display:flex;flex-wrap:wrap;gap:10px}
 .thumb{display:grid;gap:2px;justify-items:start}
 .thumb img{display:block;width:104px;height:104px;object-fit:cover;border:1px solid var(--line);border-radius:4px;background:var(--sunk)}
+/* lineage tree: passages as boxes joined by lines, one row per branch */
+.ltwrap{padding:14px;max-height:62vh;overflow:auto}
+.ltree{position:relative}
+.ltree svg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.ltree path{fill:none;stroke:var(--muted);stroke-width:1.5}
+.ltree path.thaw{stroke:var(--accent);stroke-dasharray:5 4}
+.ltree text{font-size:10.5px;fill:var(--accent);font-family:var(--sans)}
+.ln{position:absolute;width:136px;height:62px;display:grid;align-content:center;gap:1px;text-align:left;padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit;font-size:11.5px;line-height:1.3;cursor:pointer;overflow:hidden;transition:transform 140ms var(--ease-out),border-color 150ms ease}
+.ln b{font-size:13px;font-weight:600} .ln span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.ln.off{background:var(--sunk)}
+.ln.on{border-color:var(--ok);background:var(--ok-soft)} .ln.on .st{color:var(--ok);font-weight:600}
+.ln.fz{box-shadow:inset 4px 0 0 var(--accent);padding-left:12px}
+.ln.sel{outline:2px solid var(--accent);outline-offset:2px}
+.ln.gap{border-style:dashed;background:transparent;text-align:center}
+.ln:active{transform:scale(.97)} @media (hover:hover) and (pointer:fine){.ln:hover{border-color:var(--accent)}}
+@media (prefers-reduced-motion:reduce){.ln{transition:none} .ln:active{transform:none}}
+.mx tr.lsel td{box-shadow:inset 0 2px 0 var(--accent),inset 0 -2px 0 var(--accent)}
+.lnode h3{margin:0}
